@@ -13,3 +13,13 @@
 | Impact Sounds | 木材和金属撞击/断裂 | https://kenney.nl/assets/impact-sounds |
 
 每个解压目录均保留原始 `License.txt`。正式游戏当前直接使用车辆包中的 `sedan.png`，以及 Interface Sounds、Impact Sounds 中选取的 `.ogg` 文件。
+
+## 形成性评价中心（独立原型）头像
+
+`src/avatars/` 下的动物头像取自 **Twemoji**（jdecked 维护分支 v15.1.0），许可证 **CC-BY 4.0**，已本地归档：
+
+| 文件 | 来源 |
+|---|---|
+| cat/dog/fox/panda/tiger/rabbit/bear/hamster/penguin/koala/owl/lion/frog/pig/mouse/wolf `.svg` | https://github.com/jdecked/twemoji （CC-BY 4.0） |
+
+仅用于评价中心原型中的师生头像演示。
