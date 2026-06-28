@@ -146,8 +146,18 @@ for (const level of ['cableStayed', 'suspension'] as const) {
 
 const suspensionGeometry = new BridgePhysics();
 suspensionGeometry.loadLevel('suspension');
-assert.equal(suspensionGeometry.members.filter((member) => member.material === 'cable').length, 23, '主缆 12 段并设置 11 根全跨吊索');
-assert.equal(suspensionGeometry.findNode(90, 330, 3), null, '单跨悬索桥不再设置岸外边锚');
+assert.equal(suspensionGeometry.members.filter((member) => member.material === 'cable').length, 25, '主缆 12 段、11 根全跨吊索并设两根边跨锚索');
+const leftBackAnchor = suspensionGeometry.findNode(16, 455, 3);
+const rightBackAnchor = suspensionGeometry.findNode(944, 455, 3);
+assert.ok(leftBackAnchor && rightBackAnchor && leftBackAnchor.fixed && rightBackAnchor.fixed, '悬索桥应在两侧边跨设置固定锚碇');
+const towerTopLinksAnchor = (anchorId: number, topX: number) => suspensionGeometry.members.some((member) => {
+  const other = member.a === anchorId ? member.b : member.b === anchorId ? member.a : -1;
+  if (member.material !== 'cable' || other < 0) return false;
+  const node = suspensionGeometry.nodes.find((n) => n.id === other);
+  return Boolean(node && Math.abs(node.baseX - topX) < 2 && Math.abs(node.baseY - 135) < 2);
+});
+assert.ok(towerTopLinksAnchor(leftBackAnchor.id, 150), '左塔顶应有锚索拉向边跨锚碇');
+assert.ok(towerTopLinksAnchor(rightBackAnchor.id, 810), '右塔顶应有锚索拉向边跨锚碇');
 
 const damaged = new BridgePhysics();
 damaged.loadLevel('truss');

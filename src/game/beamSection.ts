@@ -10,7 +10,7 @@ export const DEFAULT_BEAM_SECTIONS: Record<LevelKey, BeamSection> = {
   beam: { shape: 'solid', depth: 33, profile: 'constant' },
   truss: { shape: 'box', depth: 33, profile: 'constant' },
   arch: { shape: 'box', depth: 36, profile: 'constant' },
-  cableStayed: { shape: 'box', depth: 63, profile: 'piers' },
+  cableStayed: { shape: 'box', depth: 54, profile: 'constant' },
   suspension: { shape: 'box', depth: 54, profile: 'constant' },
 };
 

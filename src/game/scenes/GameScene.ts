@@ -1,12 +1,21 @@
 import Phaser from 'phaser';
 import { ASSET_KEYS, LEVELS, LOAD_CASES, MATERIALS, SCENE_KEYS, WORLD } from '../constants';
 import { gameBridge } from '../gameBridge';
-import type { BridgeMember, BridgeNode, GameCommand, MaterialKey } from '../types';
+import type { BridgeMember, BridgeNode, GameCommand, LevelKey, MaterialKey } from '../types';
 import { BridgePhysics } from '../systems/BridgePhysics';
 
 // Visual-only exaggeration of the deformed shape (deflection) during load tests.
 // Physics positions are unchanged; we only scale how far nodes appear to move from rest.
+// Tuned per structural system so each reads honestly: the beam deck already sags a lot, so it
+// is exaggerated the least; the cable-stayed pylon/deck barely move (very stiff cable net), so
+// the side-span see-saw — tower leaning toward the load, main span heaving up — needs more
+// gain to be legible. Levels not listed fall back to DEFORM_SCALE.
 const DEFORM_SCALE = 2.1;
+const LEVEL_DEFORM_SCALE: Partial<Record<LevelKey, number>> = {
+  beam: 1.2,
+  suspension: 1.5,
+  cableStayed: 4.5,
+};
 // Main girder section depth is drawn at a fraction of its physical value so the deck reads slim.
 const GIRDER_RENDER_SCALE = 0.34;
 // Wall-clock speed-up of the load test: scales simulated time uniformly (vehicle + physics
@@ -327,15 +336,16 @@ export class GameScene extends Phaser.Scene {
       addLabel(480, 112, '塔高 ≈ 主跨 × 2 / 5');
       addLabel(480, 505, '塔柱贯通至海床基础');
     } else if (this.bridge.level === 'suspension') {
-      addLabel(90, 356, '边锚 A');
-      addLabel(870, 356, '边锚 B');
+      addLabel(44, 432, '边跨锚碇 A');
+      addLabel(916, 432, '边跨锚碇 B');
       addLabel(480, 108, '主缆垂跨比 ≈ 1 / 5');
       addLabel(480, 505, '塔柱贯通至海床基础');
     }
   }
 
   private get deformScale() {
-    return this.bridge.mode === 'build' ? 1 : DEFORM_SCALE;
+    if (this.bridge.mode === 'build') return 1;
+    return LEVEL_DEFORM_SCALE[this.bridge.level] ?? DEFORM_SCALE;
   }
 
   // Apparent node position: rest position plus the exaggerated displacement.

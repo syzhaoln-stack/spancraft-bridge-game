@@ -218,12 +218,16 @@ export class BridgePhysics {
     this.addFrameChain([leftFoundation, deck[3], leftMid, leftTop], 'steel');
     this.addFrameChain([rightFoundation, deck[9], rightMid, rightTop], 'steel');
 
-    for (const index of [0, 1, 2, 4, 5, 6]) this.addMemberDirect(leftTop, deck[index], 'cable');
-    for (const index of [12, 11, 10, 8, 7, 6]) this.addMemberDirect(rightTop, deck[index], 'cable');
+    // Stays and back-stays carry no manufacturing prestress (restScale 1). A 0.5% pre-strain on
+    // this dense, very stiff cable net cambers the whole deck several pixels upward before any
+    // load arrives — magnified by the deformation scale it reads as a permanent up-arch. At their
+    // natural length the deck sits flat at rest and the stays tension only as live load arrives.
+    for (const index of [0, 1, 2, 4, 5, 6]) this.addMemberDirect(leftTop, deck[index], 'cable', undefined, 1);
+    for (const index of [12, 11, 10, 8, 7, 6]) this.addMemberDirect(rightTop, deck[index], 'cable', undefined, 1);
     const leftAnchor = this.addNode(105, 330, true).id;
     const rightAnchor = this.addNode(855, 330, true).id;
-    this.addMemberDirect(leftAnchor, leftTop, 'cable');
-    this.addMemberDirect(rightTop, rightAnchor, 'cable');
+    this.addMemberDirect(leftAnchor, leftTop, 'cable', undefined, 1);
+    this.addMemberDirect(rightTop, rightAnchor, 'cable', undefined, 1);
   }
 
   private buildSuspensionLevel() {
@@ -249,6 +253,16 @@ export class BridgePhysics {
     mainCable.push(rightTop);
     for (let i = 0; i < mainCable.length - 1; i += 1) this.addMemberDirect(mainCable[i], mainCable[i + 1], 'cable');
     for (let i = 1; i < mainCable.length - 1; i += 1) this.addMemberDirect(mainCable[i], deck[i], 'cable');
+
+    // Anchor cables (back-stays): the main cable continues over each tower saddle down to a
+    // ground anchorage in the side span, balancing the horizontal pull of the main span.
+    // They are built at their exact geometric length (restScale 1, no manufacturing prestress):
+    // the steep on-screen side-span geometry would otherwise amplify a 0.5% pre-strain into
+    // near-capacity tension. Instead they tension up naturally as live load deflects the deck.
+    const leftBackAnchor = this.addNode(16, 455, true).id;
+    const rightBackAnchor = this.addNode(944, 455, true).id;
+    this.addMemberDirect(leftTop, leftBackAnchor, 'cable', undefined, 1);
+    this.addMemberDirect(rightTop, rightBackAnchor, 'cable', undefined, 1);
   }
 
   findNode(x: number, y: number, radius = 16) {
@@ -784,7 +798,9 @@ export class BridgePhysics {
       return this.hasCablePath([105, 330], [315, 145]) && this.hasCablePath([855, 330], [645, 145]);
     }
     if (this.level === 'suspension') {
-      return this.hasCablePath([150, 135], [810, 135]);
+      return this.hasCablePath([150, 135], [810, 135])
+        && this.hasCablePath([150, 135], [16, 455])
+        && this.hasCablePath([810, 135], [944, 455]);
     }
     return true;
   }
@@ -843,7 +859,7 @@ export class BridgePhysics {
       return [[150, 300], [315, 480], [645, 480], [810, 300], [105, 330], [855, 330]];
     }
     if (this.level === 'suspension') {
-      return [[150, 300], [150, 480], [810, 300], [810, 480]];
+      return [[150, 300], [150, 480], [810, 300], [810, 480], [16, 455], [944, 455]];
     }
     return [[WORLD.leftAnchor.x, WORLD.leftAnchor.y], [WORLD.rightAnchor.x, WORLD.rightAnchor.y]];
   }
@@ -871,14 +887,20 @@ export class BridgePhysics {
     return members;
   }
 
-  private addMemberDirect(a: number, b: number, material: MaterialKey, behavior?: BridgeMember['behavior']) {
+  private addMemberDirect(
+    a: number,
+    b: number,
+    material: MaterialKey,
+    behavior?: BridgeMember['behavior'],
+    restScale?: number,
+  ) {
     const na = this.nodeById(a)!;
     const nb = this.nodeById(b)!;
     const member: BridgeMember = {
       id: this.nextMemberId++,
       a,
       b,
-      rest: Math.hypot(nb.x - na.x, nb.y - na.y) * (material === 'cable' ? 0.995 : 1),
+      rest: Math.hypot(nb.x - na.x, nb.y - na.y) * (restScale ?? (material === 'cable' ? 0.995 : 1)),
       material,
       behavior: behavior ?? (material === 'road' ? 'frame' : 'axial'),
       broken: false,

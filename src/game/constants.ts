@@ -81,9 +81,9 @@ export const LEVELS: Record<LevelKey, {
     number: '05',
     name: '星海 · 悬索桥',
     shortName: '悬索',
-    mission: '让岸上双塔与全跨吊索共同托住主梁。',
-    concept: '单跨主缆',
-    hint: '双塔设在两岸，主缆连续跨越全桥；等距吊索把主梁荷载逐点送入主缆。',
+    mission: '让双塔、全跨吊索与边跨锚索共同托住主梁。',
+    concept: '主缆锚固',
+    hint: '主缆跨越全桥后经塔顶下锚于两侧边跨锚碇；锚索平衡主缆水平拉力，吊索把主梁荷载逐点送入主缆。',
     budget: 5200,
   },
 };
