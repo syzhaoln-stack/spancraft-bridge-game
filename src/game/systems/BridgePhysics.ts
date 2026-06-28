@@ -1,5 +1,16 @@
 import { LEVELS, LOAD_CASES, MATERIALS, WORLD } from '../constants';
-import type { BridgeMember, BridgeNode, GameMode, LevelKey, LoadCaseKey, MaterialKey } from '../types';
+import {
+  averageSectionMetrics,
+  DEFAULT_BEAM_SECTIONS,
+  MAX_BEAM_DEPTH,
+  MIN_BEAM_DEPTH,
+  sectionAreaRatioAt,
+  sectionCostRatioAt,
+  sectionDepthAt,
+  sectionInertiaRatioAt,
+  sectionModulusRatioAt,
+} from '../beamSection';
+import type { ArcSpacing, BeamSection, BridgeMember, BridgeNode, BuildTool, GameMode, LevelKey, LoadCaseKey, MaterialKey } from '../types';
 
 type Snapshot = {
   nodes: BridgeNode[];
@@ -15,6 +26,7 @@ type FrameJoint = {
   memberB: number;
   restAngle: number;
   lambda: number;
+  kind: 'frame' | 'girder';
 };
 
 export type StepEvents = {
@@ -36,8 +48,14 @@ export class BridgePhysics {
   mode: GameMode = 'build';
   material: MaterialKey = 'road';
   loadCase: LoadCaseKey = 'sedan';
-  level: LevelKey = 'truss';
+  level: LevelKey = 'beam';
+  beamSection: BeamSection = { ...DEFAULT_BEAM_SECTIONS.beam };
+  indestructible = false;
+  buildTool: BuildTool = 'line';
+  arcSpacing: ArcSpacing = 55;
   car = { x: 112, y: 280, vy: 0, angle: 0, progress: 0, falling: false };
+  peakStress = 0;
+  peakGirderStress = 0;
 
   private nextNodeId = 0;
   private nextMemberId = 0;
@@ -52,6 +70,10 @@ export class BridgePhysics {
   get budgetUsed() {
     return this.members.reduce((sum, member) => {
       const material = MATERIALS[member.material];
+      if (member.material === 'road') {
+        const x = this.memberBaseMidX(member);
+        return sum + member.rest * material.cost * sectionCostRatioAt(this.beamSection, x);
+      }
       return sum + member.rest * material.cost;
     }, 0);
   }
@@ -62,6 +84,24 @@ export class BridgePhysics {
 
   get maxStress() {
     return this.members.reduce((max, member) => Math.max(max, member.stress), 0);
+  }
+
+  get maxGirderStress() {
+    return this.members.reduce((max, member) => (
+      member.material === 'road' ? Math.max(max, member.stress) : max
+    ), 0);
+  }
+
+  get beamMetrics() {
+    return averageSectionMetrics(this.beamSection);
+  }
+
+  get hasMidspanSupport() {
+    return this.nodes.some((node) => node.supportY && Math.abs(node.baseX - 480) < 2);
+  }
+
+  getGirderDepth(x: number) {
+    return sectionDepthAt(this.beamSection, x);
   }
 
   get canUndo() {
@@ -91,6 +131,7 @@ export class BridgePhysics {
 
   loadLevel(level: LevelKey) {
     this.level = level;
+    this.beamSection = { ...DEFAULT_BEAM_SECTIONS[level] };
     this.nodes = [];
     this.members = [];
     this.frameJoints = [];
@@ -99,14 +140,26 @@ export class BridgePhysics {
     this.nextMemberId = 0;
     this.transactionOpen = false;
 
-    if (level === 'truss') this.buildTrussLevel();
+    if (level === 'beam') this.buildBeamLevel();
+    else if (level === 'truss') this.buildTrussLevel();
     else if (level === 'arch') this.buildArchLevel();
     else if (level === 'cableStayed') this.buildCableStayedLevel();
     else this.buildSuspensionLevel();
 
+    this.rebuildGirderJoints();
+
     this.mode = 'build';
     this.resetRuntimeValues();
     this.resetCar();
+  }
+
+  private buildBeamLevel() {
+    const deck: number[] = [];
+    for (let i = 0; i <= 10; i += 1) {
+      const x = 150 + i * 66;
+      deck.push(this.addNode(x, 300, i === 0 || i === 10).id);
+    }
+    for (let i = 0; i < deck.length - 1; i += 1) this.addMemberDirect(deck[i], deck[i + 1], 'road');
   }
 
   private buildTrussLevel() {
@@ -174,44 +227,28 @@ export class BridgePhysics {
   }
 
   private buildSuspensionLevel() {
-    const deckXs = [150, 210, 270, 300, 360, 420, 480, 540, 600, 660, 690, 750, 810];
-    const deck = deckXs.map((x) => this.addNode(x, 300, x === 150 || x === 810).id);
+    const deck = Array.from({ length: 13 }, (_, index) => (
+      this.addNode(150 + index * 55, 300, index === 0 || index === 12).id
+    ));
     for (let i = 0; i < deck.length - 1; i += 1) this.addMemberDirect(deck[i], deck[i + 1], 'road');
 
-    const leftMid = this.addNode(300, 220, false).id;
-    const leftTop = this.addNode(300, 135, false).id;
-    const rightMid = this.addNode(660, 220, false).id;
-    const rightTop = this.addNode(660, 135, false).id;
-    const leftFoundation = this.addNode(300, 480, true).id;
-    const rightFoundation = this.addNode(660, 480, true).id;
-    this.addFrameChain([leftFoundation, deck[3], leftMid, leftTop], 'steel');
-    this.addFrameChain([rightFoundation, deck[9], rightMid, rightTop], 'steel');
+    const leftMid = this.addNode(150, 220, false).id;
+    const leftTop = this.addNode(150, 135, false).id;
+    const rightMid = this.addNode(810, 220, false).id;
+    const rightTop = this.addNode(810, 135, false).id;
+    const leftFoundation = this.addNode(150, 480, true).id;
+    const rightFoundation = this.addNode(810, 480, true).id;
+    this.addFrameChain([leftFoundation, deck[0], leftMid, leftTop], 'steel');
+    this.addFrameChain([rightFoundation, deck[12], rightMid, rightTop], 'steel');
 
-    const mainCable = [
-      leftTop,
-      this.addNode(360, 177, false).id,
-      this.addNode(420, 202, false).id,
-      this.addNode(480, 210, false).id,
-      this.addNode(540, 202, false).id,
-      this.addNode(600, 177, false).id,
-      rightTop,
-    ];
+    const mainCable = [leftTop];
+    for (let index = 1; index < 12; index += 1) {
+      const t = index / 12;
+      mainCable.push(this.addNode(150 + index * 55, 135 + 105 * 4 * t * (1 - t), false).id);
+    }
+    mainCable.push(rightTop);
     for (let i = 0; i < mainCable.length - 1; i += 1) this.addMemberDirect(mainCable[i], mainCable[i + 1], 'cable');
-    for (let i = 1; i < mainCable.length - 1; i += 1) this.addMemberDirect(mainCable[i], deck[i + 3], 'cable');
-
-    const leftAnchor = this.addNode(90, 330, true).id;
-    const leftSide1 = this.addNode(155, 268, false).id;
-    const leftSide2 = this.addNode(225, 190, false).id;
-    this.addMemberDirect(leftAnchor, leftSide1, 'cable');
-    this.addMemberDirect(leftSide1, leftSide2, 'cable');
-    this.addMemberDirect(leftSide2, leftTop, 'cable');
-
-    const rightAnchor = this.addNode(870, 330, true).id;
-    const rightSide1 = this.addNode(805, 268, false).id;
-    const rightSide2 = this.addNode(735, 190, false).id;
-    this.addMemberDirect(rightTop, rightSide2, 'cable');
-    this.addMemberDirect(rightSide2, rightSide1, 'cable');
-    this.addMemberDirect(rightSide1, rightAnchor, 'cable');
+    for (let i = 1; i < mainCable.length - 1; i += 1) this.addMemberDirect(mainCable[i], deck[i], 'cable');
   }
 
   findNode(x: number, y: number, radius = 16) {
@@ -225,6 +262,31 @@ export class BridgePhysics {
       }
     }
     return best;
+  }
+
+  setBeamSection(patch: Partial<BeamSection>) {
+    if (this.mode !== 'build') return false;
+    this.beamSection = {
+      ...this.beamSection,
+      ...patch,
+      depth: PhaserLikeClamp(
+        Math.round((patch.depth ?? this.beamSection.depth) / 3) * 3,
+        MIN_BEAM_DEPTH,
+        MAX_BEAM_DEPTH,
+      ),
+    };
+    return true;
+  }
+
+  setMidspanSupport(enabled: boolean) {
+    if (this.mode !== 'build' || this.level !== 'beam' || enabled === this.hasMidspanSupport) return false;
+    const node = this.findNode(480, 300, 8);
+    if (!node) return false;
+    this.pushHistory();
+    node.supportY = enabled;
+    node.y = node.baseY;
+    node.py = node.baseY;
+    return true;
   }
 
   startBuildAt(rawX: number, rawY: number) {
@@ -259,7 +321,10 @@ export class BridgePhysics {
       this.transactionOpen = false;
       return { ok: false, reason: '这里已经有构件了' };
     }
-    const cost = length * MATERIALS[material].cost;
+    const costMultiplier = material === 'road'
+      ? sectionCostRatioAt(this.beamSection, (start.baseX + targetX) * 0.5)
+      : 1;
+    const cost = length * MATERIALS[material].cost * costMultiplier;
     if (this.budgetUsed + cost > this.budgetMax) {
       this.transactionOpen = false;
       return { ok: false, reason: '预算不够，试试木材或删除多余构件' };
@@ -269,8 +334,59 @@ export class BridgePhysics {
     const target = existing
       ?? (projection ? this.splitMember(projection.member, projection.x, projection.y) : this.addNode(targetX, targetY, false));
     this.addMemberDirect(start.id, target.id, material);
+    this.rebuildGirderJoints();
     this.transactionOpen = false;
     return { ok: true, reason: `${MATERIALS[material].name} +1` };
+  }
+
+  getArcPreview(startId: number, rawX: number, rawY: number, material: MaterialKey, spacing: ArcSpacing) {
+    const start = this.nodeById(startId);
+    if (!start) return [];
+    const existing = this.findNode(rawX, rawY, 18);
+    const x = existing?.x ?? Math.round(rawX / WORLD.grid) * WORLD.grid;
+    const y = existing?.y ?? Math.round(rawY / WORLD.grid) * WORLD.grid;
+    return this.makeArcPoints(start.x, start.y, x, y, material, spacing);
+  }
+
+  addArcFrom(startId: number, rawX: number, rawY: number, material: MaterialKey, spacing: ArcSpacing) {
+    if (this.mode !== 'build') return { ok: false, reason: '加载中不能施工' };
+    if (material === 'road') return { ok: false, reason: '弧线工具用于钢拱、木拱或缆索；桥面请用直线工具。' };
+    const start = this.nodeById(startId);
+    if (!start) return { ok: false, reason: '请选择已有节点' };
+
+    const snappedX = Math.round(rawX / WORLD.grid) * WORLD.grid;
+    const snappedY = Math.round(rawY / WORLD.grid) * WORLD.grid;
+    const existing = this.findNode(rawX, rawY, 18) ?? this.findNode(snappedX, snappedY, 18);
+    if (existing?.id === start.id) return { ok: false, reason: '弧线终点不能与起点重合' };
+    const projection = existing ? null : this.findMemberProjection(rawX, rawY, 14);
+    const targetX = existing?.x ?? projection?.x ?? snappedX;
+    const targetY = existing?.y ?? projection?.y ?? snappedY;
+    const points = this.makeArcPoints(start.x, start.y, targetX, targetY, material, spacing);
+    if (points.length < 3) {
+      this.transactionOpen = false;
+      return { ok: false, reason: `弧线水平跨度至少需要 ${spacing}px` };
+    }
+
+    let cost = 0;
+    for (let i = 0; i < points.length - 1; i += 1) {
+      cost += Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y) * MATERIALS[material].cost;
+    }
+    if (this.budgetUsed + cost > this.budgetMax) {
+      this.transactionOpen = false;
+      return { ok: false, reason: '预算不够，增大分段距离或删除多余构件' };
+    }
+
+    if (!this.transactionOpen) this.pushHistory();
+    const target = existing
+      ?? (projection ? this.splitMember(projection.member, projection.x, projection.y) : this.addNode(targetX, targetY, false));
+    const nodeIds = [start.id];
+    for (let i = 1; i < points.length - 1; i += 1) nodeIds.push(this.addNode(points[i].x, points[i].y, false).id);
+    nodeIds.push(target.id);
+    if (material === 'steel') this.addFrameChain(nodeIds, material);
+    else for (let i = 0; i < nodeIds.length - 1; i += 1) this.addMemberDirect(nodeIds[i], nodeIds[i + 1], material);
+    this.rebuildGirderJoints();
+    this.transactionOpen = false;
+    return { ok: true, reason: `弧线已按桥向等分为 ${nodeIds.length - 1} 段（约 ${spacing}px/段）` };
   }
 
   deleteNearest(x: number, y: number) {
@@ -293,6 +409,7 @@ export class BridgePhysics {
     this.pushHistory();
     this.members.splice(bestIndex, 1);
     this.removeOrphanNodes();
+    this.rebuildGirderJoints();
     return true;
   }
 
@@ -306,16 +423,20 @@ export class BridgePhysics {
 
   startTest() {
     if (!this.hasContinuousRoad()) return { ok: false, reason: '桥面还没有从左岸连到右岸' };
-    if (!this.hasRequiredAnchorCables()) {
-      return { ok: false, reason: '边锚索没有闭合：主缆或背索必须连续连接桥塔与两侧地锚。' };
-    }
+    this.rebuildGirderJoints();
+    const anchorWarning = !this.hasRequiredAnchorCables();
     this.designSnapshot = this.capture();
     this.restore(this.designSnapshot);
     this.mode = 'test';
     this.resetRuntimeValues();
     this.resetCar();
     this.transactionOpen = false;
-    return { ok: true, reason: `${LOAD_CASES[this.loadCase].name}加载开始` };
+    return {
+      ok: true,
+      reason: anchorWarning
+        ? `警告：边锚或背索不连续，继续加载以观察主梁和桥塔如何失效。`
+        : `${LOAD_CASES[this.loadCase].name}加载开始`,
+    };
   }
 
   stopTest() {
@@ -334,15 +455,42 @@ export class BridgePhysics {
     this.applyVehicleLoad(dt);
     this.integrate(dt);
 
-    for (let iteration = 0; iteration < 12; iteration += 1) {
+    for (let iteration = 0; iteration < 24; iteration += 1) {
       for (const member of this.members) this.solveMember(member, dt);
       for (const joint of this.frameJoints) this.solveFrameJoint(joint, dt);
+      this.enforceVerticalSupports();
     }
 
     const bendingStress = new Map<number, number>();
     for (const joint of this.frameJoints) {
       if (!this.isFrameJointActive(joint)) continue;
-      const stress = Math.abs(joint.lambda) / (dt * dt) / 900000;
+      const jointNode = this.nodeById(joint.b);
+      const isGirder = joint.kind === 'girder' && jointNode;
+      const inertiaScale = isGirder
+        ? Math.max(0.08, sectionInertiaRatioAt(this.beamSection, jointNode.baseX))
+        : 1;
+      const capacity = isGirder
+        ? 155000 * Math.max(0.12, sectionModulusRatioAt(this.beamSection, jointNode.baseX))
+        : 1550000;
+      // XPBD multipliers grow with constraint stiffness. Remove that numerical bias
+      // before comparing moment demand with the section modulus W.
+      const spanRatio = jointNode ? PhaserLikeClamp((jointNode.baseX - 150) / 660, 0, 1) : 0.5;
+      const halfSpanRatio = spanRatio <= 0.5 ? spanRatio * 2 : (1 - spanRatio) * 2;
+      const simpleBeamEnvelope = this.level === 'beam'
+        ? this.hasMidspanSupport
+          ? 0.12 + 0.28 * 4 * halfSpanRatio * (1 - halfSpanRatio)
+          : 0.2 + 0.8 * 4 * spanRatio * (1 - spanRatio)
+        : 1;
+      const suspensionSupportFactor = this.level === 'suspension' && joint.kind === 'girder'
+        ? this.members.some((member) => !member.broken
+          && member.material === 'cable'
+          && (member.a === joint.b || member.b === joint.b))
+          ? 0.82
+          : 1.85
+        : 1;
+      const momentDemand = Math.abs(joint.lambda) / (dt * dt) / Math.sqrt(inertiaScale)
+        * simpleBeamEnvelope * suspensionSupportFactor;
+      const stress = momentDemand / capacity;
       bendingStress.set(joint.memberA, Math.max(bendingStress.get(joint.memberA) ?? 0, stress));
       bendingStress.set(joint.memberB, Math.max(bendingStress.get(joint.memberB) ?? 0, stress));
     }
@@ -352,21 +500,23 @@ export class BridgePhysics {
       if (member.broken) continue;
       const material = MATERIALS[member.material];
       const force = Math.abs(member.lambda) / (dt * dt);
-      const a = this.nodeById(member.a);
-      const b = this.nodeById(member.b);
-      const forceStress = force / material.capacity;
-      const deckDeflectionLimit = this.level === 'suspension' ? 24 : 18;
-      const deckDeflection = a && b && member.material === 'road'
-        ? Math.abs(((a.y - a.baseY) + (b.y - b.baseY)) * 0.5) / deckDeflectionLimit
-        : 0;
-      member.stress = Math.max(forceStress, deckDeflection, bendingStress.get(member.id) ?? 0);
-      if (member.stress > 1) member.overFrames += 1;
+      const areaScale = member.material === 'road'
+        ? Math.max(0.2, sectionAreaRatioAt(this.beamSection, this.memberBaseMidX(member)))
+        : 1;
+      const forceStress = force / (material.capacity * areaScale);
+      member.axialStress = forceStress;
+      member.bendingStress = bendingStress.get(member.id) ?? 0;
+      member.stress = Math.max(member.axialStress, member.bendingStress);
+      if (!this.indestructible && member.stress > 1) member.overFrames += 1;
       else member.overFrames = Math.max(0, member.overFrames - 2);
-      if (member.overFrames > 5) {
+      if (!this.indestructible && member.overFrames > 5) {
         member.broken = true;
         broken = member;
       }
     }
+
+    this.peakStress = Math.max(this.peakStress, this.maxStress);
+    this.peakGirderStress = Math.max(this.peakGirderStress, this.maxGirderStress);
 
     this.advanceVehicle(dt);
     if (this.car.x > this.finishX && !this.car.falling) {
@@ -388,6 +538,14 @@ export class BridgePhysics {
         node.py = node.y;
         continue;
       }
+      if (node.supportY) {
+        const vx = (node.x - node.px) * damping;
+        node.px = node.x;
+        node.py = node.baseY;
+        node.x += vx;
+        node.y = node.baseY;
+        continue;
+      }
       const vx = (node.x - node.px) * damping;
       const vy = (node.y - node.py) * damping;
       node.px = node.x;
@@ -399,11 +557,22 @@ export class BridgePhysics {
     for (const member of this.members) {
       if (member.broken) continue;
       const material = MATERIALS[member.material];
-      const weightStep = material.weight * dt * dt * 0.5;
+      const sectionWeight = member.material === 'road'
+        ? sectionAreaRatioAt(this.beamSection, this.memberBaseMidX(member))
+        : 1;
+      const weightStep = material.weight * sectionWeight * dt * dt * 0.5;
       const a = this.nodeById(member.a);
       const b = this.nodeById(member.b);
       if (a && !a.fixed) a.y += weightStep;
       if (b && !b.fixed) b.y += weightStep;
+    }
+  }
+
+  private enforceVerticalSupports() {
+    for (const node of this.nodes) {
+      if (!node.supportY) continue;
+      node.y = node.baseY;
+      node.py = node.baseY;
     }
   }
 
@@ -423,7 +592,10 @@ export class BridgePhysics {
     const wa = a.fixed ? 0 : 1;
     const wb = b.fixed ? 0 : 1;
     if (wa + wb === 0) return;
-    const alpha = MATERIALS[member.material].compliance / (dt * dt);
+    const areaScale = member.material === 'road'
+      ? Math.max(0.2, sectionAreaRatioAt(this.beamSection, this.memberBaseMidX(member)))
+      : 1;
+    const alpha = (MATERIALS[member.material].compliance / areaScale) / (dt * dt);
     const deltaLambda = (-constraint - alpha * member.lambda) / (wa + wb + alpha);
     member.lambda += deltaLambda;
     const nx = dx / length;
@@ -443,19 +615,21 @@ export class BridgePhysics {
     const nodes = [this.nodeById(joint.a), this.nodeById(joint.b), this.nodeById(joint.c)];
     if (nodes.some((node) => !node)) return;
     const [a, b, c] = nodes as [BridgeNode, BridgeNode, BridgeNode];
-    const currentAngle = signedAngle(a, b, c);
-    const constraint = normalizeAngle(currentAngle - joint.restAngle);
+    const currentMeasure = joint.kind === 'girder' ? bendSine(a, b, c) : signedAngle(a, b, c);
+    const constraint = joint.kind === 'girder'
+      ? currentMeasure - joint.restAngle
+      : normalizeAngle(currentMeasure - joint.restAngle);
     const epsilon = 0.01;
     const gradients = [a, b, c].map((node) => {
       node.x += epsilon;
-      const angleX = signedAngle(a, b, c);
+      const measureX = joint.kind === 'girder' ? bendSine(a, b, c) : signedAngle(a, b, c);
       node.x -= epsilon;
       node.y += epsilon;
-      const angleY = signedAngle(a, b, c);
+      const measureY = joint.kind === 'girder' ? bendSine(a, b, c) : signedAngle(a, b, c);
       node.y -= epsilon;
       return {
-        x: normalizeAngle(angleX - currentAngle) / epsilon,
-        y: normalizeAngle(angleY - currentAngle) / epsilon,
+        x: (joint.kind === 'girder' ? measureX - currentMeasure : normalizeAngle(measureX - currentMeasure)) / epsilon,
+        y: (joint.kind === 'girder' ? measureY - currentMeasure : normalizeAngle(measureY - currentMeasure)) / epsilon,
       };
     });
 
@@ -465,7 +639,12 @@ export class BridgePhysics {
       weightedGradient += gradients[i].x ** 2 + gradients[i].y ** 2;
     }
     if (weightedGradient < 1e-10) return;
-    const alpha = 0.00000008 / (dt * dt);
+    const inertiaScale = joint.kind === 'girder'
+      ? Math.max(0.08, sectionInertiaRatioAt(this.beamSection, b.baseX))
+      : 1;
+    const baseCompliance = joint.kind === 'girder' ? 0.00000042 / inertiaScale : 0.00000008;
+    const compliance = baseCompliance;
+    const alpha = compliance / (dt * dt);
     const deltaLambda = (-constraint - alpha * joint.lambda) / (weightedGradient + alpha);
     joint.lambda += deltaLambda;
     for (let i = 0; i < 3; i += 1) {
@@ -605,7 +784,7 @@ export class BridgePhysics {
       return this.hasCablePath([105, 330], [315, 145]) && this.hasCablePath([855, 330], [645, 145]);
     }
     if (this.level === 'suspension') {
-      return this.hasCablePath([90, 330], [300, 135]) && this.hasCablePath([870, 330], [660, 135]);
+      return this.hasCablePath([150, 135], [810, 135]);
     }
     return true;
   }
@@ -631,6 +810,28 @@ export class BridgePhysics {
     return false;
   }
 
+  private makeArcPoints(
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number,
+    material: MaterialKey,
+    spacing: ArcSpacing,
+  ) {
+    const dx = bx - ax;
+    if (Math.abs(dx) < spacing * 0.8) return [];
+    const segments = Math.max(2, Math.ceil(Math.abs(dx) / spacing));
+    const rise = Math.min(120, Math.max(36, Math.abs(dx) * 0.22));
+    const direction = material === 'cable' ? 1 : -1;
+    return Array.from({ length: segments + 1 }, (_, index) => {
+      const t = index / segments;
+      return {
+        x: ax + dx * t,
+        y: ay + (by - ay) * t + direction * rise * 4 * t * (1 - t),
+      };
+    });
+  }
+
   private addNode(x: number, y: number, fixed: boolean) {
     const node: BridgeNode = { id: this.nextNodeId++, x, y, px: x, py: y, baseX: x, baseY: y, fixed };
     this.nodes.push(node);
@@ -642,7 +843,7 @@ export class BridgePhysics {
       return [[150, 300], [315, 480], [645, 480], [810, 300], [105, 330], [855, 330]];
     }
     if (this.level === 'suspension') {
-      return [[90, 330], [150, 300], [300, 480], [660, 480], [810, 300], [870, 330]];
+      return [[150, 300], [150, 480], [810, 300], [810, 480]];
     }
     return [[WORLD.leftAnchor.x, WORLD.leftAnchor.y], [WORLD.rightAnchor.x, WORLD.rightAnchor.y]];
   }
@@ -664,12 +865,13 @@ export class BridgePhysics {
         memberB: members[i + 1].id,
         restAngle: signedAngle(a, b, c),
         lambda: 0,
+        kind: 'frame',
       });
     }
     return members;
   }
 
-  private addMemberDirect(a: number, b: number, material: MaterialKey, behavior: BridgeMember['behavior'] = 'axial') {
+  private addMemberDirect(a: number, b: number, material: MaterialKey, behavior?: BridgeMember['behavior']) {
     const na = this.nodeById(a)!;
     const nb = this.nodeById(b)!;
     const member: BridgeMember = {
@@ -678,7 +880,7 @@ export class BridgePhysics {
       b,
       rest: Math.hypot(nb.x - na.x, nb.y - na.y) * (material === 'cable' ? 0.995 : 1),
       material,
-      behavior,
+      behavior: behavior ?? (material === 'road' ? 'frame' : 'axial'),
       broken: false,
       stress: 0,
       lambda: 0,
@@ -686,6 +888,58 @@ export class BridgePhysics {
     };
     this.members.push(member);
     return member;
+  }
+
+  private rebuildGirderJoints() {
+    const structuralJoints = this.frameJoints.filter((joint) => joint.kind === 'frame');
+    const roadByNode = new Map<number, BridgeMember[]>();
+    for (const member of this.members) {
+      if (member.material !== 'road' || member.broken) continue;
+      for (const id of [member.a, member.b]) {
+        const list = roadByNode.get(id) ?? [];
+        list.push(member);
+        roadByNode.set(id, list);
+      }
+    }
+
+    const girderJoints: FrameJoint[] = [];
+    for (const [nodeId, members] of roadByNode) {
+      if (members.length < 2) continue;
+      let bestPair: [BridgeMember, BridgeMember] | null = null;
+      let bestStraightness = Number.POSITIVE_INFINITY;
+      const b = this.nodeById(nodeId);
+      if (!b) continue;
+      for (let i = 0; i < members.length - 1; i += 1) {
+        for (let j = i + 1; j < members.length; j += 1) {
+          const memberA = members[i];
+          const memberB = members[j];
+          const a = this.nodeById(memberA.a === nodeId ? memberA.b : memberA.a);
+          const c = this.nodeById(memberB.a === nodeId ? memberB.b : memberB.a);
+          if (!a || !c) continue;
+          const angle = signedAngle(a, b, c);
+          const straightness = Math.abs(Math.PI - Math.abs(angle));
+          if (straightness < bestStraightness) {
+            bestStraightness = straightness;
+            bestPair = [memberA, memberB];
+          }
+        }
+      }
+      if (!bestPair) continue;
+      const [memberA, memberB] = bestPair;
+      const a = this.nodeById(memberA.a === nodeId ? memberA.b : memberA.a)!;
+      const c = this.nodeById(memberB.a === nodeId ? memberB.b : memberB.a)!;
+      girderJoints.push({
+        a: a.id,
+        b: b.id,
+        c: c.id,
+        memberA: memberA.id,
+        memberB: memberB.id,
+        restAngle: bendSine(a, b, c),
+        lambda: 0,
+        kind: 'girder',
+      });
+    }
+    this.frameJoints = [...structuralJoints, ...girderJoints];
   }
 
   private findMemberProjection(x: number, y: number, radius: number) {
@@ -720,6 +974,12 @@ export class BridgePhysics {
     return this.nodes.find((node) => node.id === id);
   }
 
+  private memberBaseMidX(member: BridgeMember) {
+    const a = this.nodeById(member.a);
+    const b = this.nodeById(member.b);
+    return a && b ? (a.baseX + b.baseX) * 0.5 : 480;
+  }
+
   private removeOrphanNodes() {
     const used = new Set(this.members.flatMap((member) => [member.a, member.b]));
     this.nodes = this.nodes.filter((node) => node.fixed || used.has(node.id));
@@ -747,6 +1007,8 @@ export class BridgePhysics {
   }
 
   private resetRuntimeValues() {
+    this.peakStress = 0;
+    this.peakGirderStress = 0;
     for (const node of this.nodes) {
       node.px = node.x;
       node.py = node.y;
@@ -756,6 +1018,8 @@ export class BridgePhysics {
       member.stress = 0;
       member.lambda = 0;
       member.overFrames = 0;
+      member.axialStress = 0;
+      member.bendingStress = 0;
     }
     for (const joint of this.frameJoints) joint.lambda = 0;
   }
@@ -781,6 +1045,15 @@ function signedAngle(a: BridgeNode, b: BridgeNode, c: BridgeNode) {
   const vx = c.x - b.x;
   const vy = c.y - b.y;
   return Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy);
+}
+
+function bendSine(a: BridgeNode, b: BridgeNode, c: BridgeNode) {
+  const ux = a.x - b.x;
+  const uy = a.y - b.y;
+  const vx = c.x - b.x;
+  const vy = c.y - b.y;
+  const denominator = Math.max(0.0001, Math.hypot(ux, uy) * Math.hypot(vx, vy));
+  return (ux * vy - uy * vx) / denominator;
 }
 
 function normalizeAngle(angle: number) {

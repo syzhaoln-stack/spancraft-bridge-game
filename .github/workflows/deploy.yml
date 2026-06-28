@@ -1,0 +1,67 @@
+name: Deploy both versions to Pages
+
+# Builds two versions of SpanCraft and publishes them to one GitHub Pages site:
+#   /            -> new version (current main)
+#   /original/   -> original release (tag v1.0.0)
+# Relative base (`base: './'`) lets each build run from any sub-path unchanged.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history so tag v1.0.0 is available)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Build NEW version (main)
+        run: |
+          npm ci
+          npm run build
+          mkdir -p site
+          cp -r dist/* site/
+
+      - name: Build ORIGINAL version (v1.0.0)
+        run: |
+          git worktree add ../orig v1.0.0
+          ( cd ../orig && npm ci && npm run build )
+          mkdir -p site/original
+          cp -r ../orig/dist/* site/original/
+
+      - name: Inject version-switch banners
+        run: |
+          printf '%s' '<a href="./original/" style="position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:99999;background:#18324a;color:#fff3d6;font:700 12px/1 system-ui,sans-serif;padding:10px 16px;border-radius:999px;text-decoration:none;box-shadow:0 6px 18px rgba(0,0,0,.32)">A 新版 · 点此看原版 v1.0.0 &rarr;</a>' >> site/index.html
+          printf '%s' '<a href="../" style="position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:99999;background:#8a3b2e;color:#ffeede;font:700 12px/1 system-ui,sans-serif;padding:10px 16px;border-radius:999px;text-decoration:none;box-shadow:0 6px 18px rgba(0,0,0,.32)">B 原版 v1.0.0 · 点此看新版 &rarr;</a>' >> site/original/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

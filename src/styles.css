@@ -185,6 +185,18 @@ button:active:not(:disabled) { transform: scale(0.97); }
 .material-copy small { color: #5d6f75; font-size: 10px; line-height: 1.3; }
 kbd { font: 700 10px/1 "Cascadia Mono", monospace; color: #61727a; }
 
+.curve-tool { margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(24,50,74,.35); }
+.curve-tool-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.curve-tool-heading span { font-size: 11px; font-weight: 900; letter-spacing: .08em; }
+.curve-tool-heading small { color: #65767b; font-size: 8px; }
+.tool-mode-options { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.tool-mode-options button { min-height: 32px; background: rgba(24,50,74,.06); border: 1px solid rgba(24,50,74,.2); font-size: 10px; }
+.tool-mode-options button.is-active { background: var(--ink); color: #fff3d6; }
+.arc-spacing-options { display: grid; grid-template-columns: auto repeat(4, 1fr); gap: 3px; align-items: center; margin-top: 6px; }
+.arc-spacing-options span { color: #65767b; font-size: 8px; }
+.arc-spacing-options button { min-height: 24px; padding: 2px; background: transparent; border: 1px solid rgba(24,50,74,.18); font: 700 8px/1 "Cascadia Mono", monospace; }
+.arc-spacing-options button.is-active { background: var(--amber); border-color: var(--ink); }
+
 .rail-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; padding-top: 12px; }
 .rail-tools button { background: transparent; border: 1px solid rgba(24,50,74,.24); font-size: 13px; }
 .rail-tip { margin: 8px 0 0; text-align: center; color: #63747a; font-size: 10px; }
@@ -258,11 +270,23 @@ kbd { font: 700 10px/1 "Cascadia Mono", monospace; color: #61727a; }
 .coach-header h2 { margin: 5px 0 8px; font: 700 24px/1.1 "Bahnschrift SemiCondensed", "Microsoft YaHei", sans-serif; }
 .coach-header > p:last-child { margin: 0; color: #596d75; font-size: 12px; line-height: 1.65; }
 
-.load-picker { margin-top: 14px; }
-.level-picker { margin-top: 14px; padding-bottom: 12px; border-bottom: 1px dashed rgba(24,50,74,.28); }
-.load-picker-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+.load-picker { margin-top: 16px; padding-top: 14px; border-top: 1px dashed rgba(24,50,74,.26); }
+.level-picker { margin-top: 14px; padding-bottom: 14px; border-bottom: 1px dashed rgba(24,50,74,.26); }
+.load-picker-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .load-picker-heading span { font-size: 12px; font-weight: 800; letter-spacing: .06em; }
 .load-picker-heading small { color: #68797d; font-size: 9px; }
+
+/* consistent coral section markers across the coach panel headings */
+.load-picker-heading span::before,
+.section-designer-heading span::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 11px;
+  margin-right: 7px;
+  background: var(--coral);
+  vertical-align: -1px;
+}
 .load-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
 .load-option {
   display: grid;
@@ -281,7 +305,7 @@ kbd { font: 700 10px/1 "Cascadia Mono", monospace; color: #61727a; }
 .load-option b { overflow: hidden; max-width: 100%; font-size: 10px; white-space: nowrap; text-overflow: ellipsis; }
 .load-option small { color: #68797d; font-size: 8px; line-height: 1.25; }
 
-.level-options { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.level-options { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
 .level-option {
   display: grid;
   place-items: center;
@@ -300,6 +324,61 @@ kbd { font: 700 10px/1 "Cascadia Mono", monospace; color: #61727a; }
 .level-option small { overflow: hidden; max-width: 100%; color: #6c7b7e; font-size: 7px; white-space: nowrap; text-overflow: ellipsis; }
 .level-option.is-active small { color: rgba(255,243,214,.68); }
 
+.section-designer {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(24,50,74,.26);
+}
+.section-designer-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.section-designer-heading > div { display: grid; gap: 1px; }
+.section-designer-heading span { font-size: 12px; font-weight: 900; letter-spacing: .06em; }
+.section-designer-heading small { color: #68797d; font-size: 8px; }
+.section-designer-heading > b { color: var(--coral-dark); font: 800 13px/1 "Cascadia Mono", monospace; }
+.section-shape-options { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 8px; }
+.section-shape-options button {
+  display: grid;
+  grid-template-columns: 31px 1fr;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 6px;
+  text-align: left;
+  background: rgba(255,255,255,.34);
+  border: 1px solid rgba(24,50,74,.16);
+}
+.section-shape-options button.is-active { background: #fff7e3; border-color: var(--coral); box-shadow: inset 0 -3px 0 var(--coral); }
+.section-shape-options button > span { display: grid; gap: 1px; min-width: 0; }
+.section-shape-options b { font-size: 9px; }
+.section-shape-options small { overflow: hidden; color: #697a7d; font-size: 7px; white-space: nowrap; text-overflow: ellipsis; }
+.section-icon { display: block; width: 29px; height: 22px; background: #728f98; border: 3px solid #18324a; }
+.section-box { position: relative; background: transparent; }
+.section-box::after { content: ""; position: absolute; inset: 4px 5px; background: #e8e0cb; border: 1px solid rgba(24,50,74,.55); }
+.section-glyph { display: block; width: 31px; height: 22px; }
+.depth-control { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 6px; margin-top: 9px; font-size: 9px; font-weight: 800; }
+.depth-stepper { display: grid; grid-template-columns: 20px minmax(70px, 1fr) 20px; align-items: center; gap: 4px; }
+.depth-stepper button { height: 20px; border: 1px solid rgba(23, 56, 75, .25); background: rgba(255, 255, 255, .4); color: var(--navy); font: 900 12px/1 var(--font-sans); cursor: pointer; }
+.depth-stepper button:hover:not(:disabled) { border-color: var(--coral); color: var(--coral); }
+.depth-stepper button:disabled { opacity: .35; cursor: not-allowed; }
+.depth-control input { width: 100%; accent-color: var(--coral); }
+.depth-control small { color: #6b7c80; font-size: 7px; }
+.profile-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 7px; }
+.profile-options button { min-height: 30px; padding: 3px; background: rgba(255,255,255,.26); border: 1px solid rgba(24,50,74,.18); font-size: 8px; }
+.profile-options button.is-active { background: var(--ink); color: #fff3d6; }
+.section-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; }
+.section-metrics span { display: grid; gap: 2px; padding: 5px; background: rgba(24,50,74,.08); text-align: center; }
+.section-metrics small { color: #62767b; font: 700 7px/1 "Cascadia Mono", monospace; }
+.section-metrics b { font: 800 10px/1 "Cascadia Mono", monospace; }
+.design-assists { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 8px; }
+.design-assists button { display: grid; grid-template-columns: 22px 1fr; grid-template-rows: auto auto; column-gap: 5px; min-width: 0; padding: 6px; text-align: left; background: rgba(255,255,255,.3); border: 1px solid rgba(24,50,74,.18); }
+.design-assists button > span { grid-row: 1 / 3; align-self: center; color: var(--coral-dark); font: 900 18px/1 "Cascadia Mono", monospace; }
+.design-assists button b { font-size: 8px; }
+.design-assists button small { overflow: hidden; color: #65767b; font-size: 6px; white-space: nowrap; text-overflow: ellipsis; }
+.design-assists button.is-active { background: #fff7e3; border-color: var(--coral); box-shadow: inset 0 -3px 0 var(--coral); }
+.design-assists .indestructible-option.is-active { background: var(--ink); color: #fff3d6; border-color: var(--ink); box-shadow: inset 0 -3px 0 var(--amber); }
+.design-assists .indestructible-option.is-active small { color: rgba(255,243,214,.68); }
+.girder-meter { border-left: 3px solid #728f98; }
+
 .mission-steps { list-style: none; padding: 0; margin: 14px 0; display: grid; gap: 12px; }
 .mission-steps li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; opacity: .45; }
 .mission-steps li > span { display: grid; place-items: center; width: 28px; height: 28px; border: 2px solid var(--ink); font: 700 12px/1 "Cascadia Mono", monospace; }
@@ -310,7 +389,7 @@ kbd { font: 700 10px/1 "Cascadia Mono", monospace; color: #61727a; }
 .mission-steps .is-current > span { background: var(--amber); }
 .mission-steps .is-done > span { background: var(--teal); color: white; border-color: var(--teal); }
 
-.meter-card { margin-top: 14px; padding: 12px; background: #e4dcc8; }
+.meter-card { margin-top: 12px; padding: 12px; background: #e4dcc8; border-left: 3px solid rgba(24,50,74,.16); }
 .meter-label { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
 .meter-label b { font-family: "Cascadia Mono", monospace; }
 .meter-track { height: 7px; margin-top: 8px; overflow: hidden; background: rgba(24,50,74,.15); }
@@ -367,37 +446,85 @@ kbd { font: 700 10px/1 "Cascadia Mono", monospace; color: #61727a; }
 }
 .intro-sheet {
   position: relative;
-  width: min(880px, 94vw);
+  width: min(720px, 94vw);
   display: grid;
-  grid-template-columns: .85fr 1.15fr;
+  grid-template-columns: 1fr;
   overflow: hidden;
   background: var(--paper);
   box-shadow: 0 26px 80px rgba(9,25,38,.45);
   clip-path: var(--cut);
   animation: sheet-in 420ms cubic-bezier(.16,1,.3,1) both;
 }
-.intro-close { position: absolute; right: 12px; top: 12px; z-index: 2; width: 44px; background: transparent; font-size: 28px; }
-.intro-art {
+.intro-close { position: absolute; right: 12px; top: 12px; z-index: 4; width: 44px; background: rgba(17,39,57,.32); color: #fff3d6; font-size: 26px; }
+
+/* ---- living cable-stayed hero ---- */
+.hero-stage {
   position: relative;
-  min-height: 480px;
+  height: clamp(190px, 30vh, 248px);
   overflow: hidden;
-  background:
-    linear-gradient(rgba(234,111,81,.18) 1px, transparent 1px) 0 0 / 24px 24px,
-    linear-gradient(90deg, rgba(234,111,81,.18) 1px, transparent 1px) 0 0 / 24px 24px,
-    #2c566b;
+  background: #9ed7d5;
+  border-bottom: 4px solid var(--ink);
 }
-.intro-art::before { content: "BLUEPRINT / A-01"; position: absolute; left: 18px; top: 18px; color: rgba(255,255,255,.62); font: 700 11px/1 "Cascadia Mono", monospace; letter-spacing: .12em; }
-.intro-art::after { content: ""; position: absolute; left: 0; right: 0; bottom: 74px; height: 110px; background: #377d8c; clip-path: polygon(0 42%, 12% 26%, 25% 50%, 42% 22%, 58% 44%, 74% 19%, 89% 45%, 100% 30%, 100% 100%, 0 100%); }
-.intro-art img { position: absolute; z-index: 3; width: 87px; image-rendering: pixelated; left: 56%; top: 42%; transform: translate(-50%, -50%); }
-.mini-bridge { position: absolute; z-index: 2; left: 12%; right: 12%; top: 48%; height: 120px; border-top: 9px solid #f4e8c4; }
-.mini-bridge i { position: absolute; width: 5px; height: 116px; top: -6px; left: calc(var(--i, 0) * 25%); background: #f0c85a; transform-origin: top; transform: rotate(-33deg); }
-.mini-bridge i:nth-child(1) { --i: 0; left: 4%; }
-.mini-bridge i:nth-child(2) { --i: 1; transform: rotate(33deg); }
-.mini-bridge i:nth-child(3) { --i: 2; }
-.mini-bridge i:nth-child(4) { --i: 3; transform: rotate(33deg); }
-.mini-bridge i:nth-child(5) { --i: 4; left: 96%; }
-.intro-content { padding: 48px 42px 36px; }
-.intro-content h2 { margin: 10px 0 12px; font: 800 clamp(32px, 4vw, 48px)/1.05 "Bahnschrift SemiCondensed", "Microsoft YaHei", sans-serif; letter-spacing: -.02em; }
+.hero-svg { display: block; width: 100%; height: 100%; }
+.hero-svg image { image-rendering: pixelated; }
+
+.hero-tag {
+  position: absolute;
+  left: 14px;
+  bottom: 12px;
+  padding: 4px 9px;
+  background: rgba(17,39,57,.72);
+  color: #fff3d6;
+  font: 700 10px/1 "Cascadia Mono", monospace;
+  letter-spacing: .14em;
+}
+
+.hero-cables line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: cable-draw 1.3s cubic-bezier(.2,.85,.25,1) both;
+}
+@keyframes cable-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+
+.hero-sun { transform-box: fill-box; transform-origin: center; animation: hero-sun 5s ease-in-out infinite; }
+@keyframes hero-sun { 0%, 100% { opacity: .82; } 50% { opacity: 1; } }
+
+.hero-clouds { animation: hero-drift 30s linear infinite alternate; }
+.hero-hills { animation: hero-drift 60s ease-in-out infinite alternate; }
+@keyframes hero-drift { from { transform: translateX(0); } to { transform: translateX(26px); } }
+
+.hero-shimmer { animation: hero-shimmer 6s ease-in-out infinite alternate; }
+@keyframes hero-shimmer { from { transform: translateX(0); } to { transform: translateX(30px); } }
+
+.hero-car {
+  transform-box: fill-box;
+  animation: hero-car 7.5s linear infinite;
+}
+@keyframes hero-car {
+  0% { transform: translateX(20px); opacity: 0; }
+  7% { opacity: 1; }
+  92% { opacity: 1; }
+  100% { transform: translateX(796px); opacity: 0; }
+}
+
+.hero-ped { animation: hero-ped 16s linear infinite; }
+.hero-ped-2 { animation-duration: 21s; animation-delay: -9s; }
+@keyframes hero-ped {
+  0% { transform: translateX(40px); opacity: 0; }
+  6% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateX(792px); opacity: 0; }
+}
+.hero-ped .ped-f2 { opacity: 0; }
+.hero-ped .ped-f1 { animation: hero-step .46s steps(1) infinite; }
+.hero-ped .ped-f2 { animation: hero-step .46s steps(1) infinite; animation-delay: .23s; }
+@keyframes hero-step { 0%, 49.9% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+.intro-content { padding: 30px 38px 32px; }
+.intro-content h2 { margin: 6px 0 12px; font: 800 clamp(28px, 5vw, 40px)/1.08 "Bahnschrift SemiCondensed", "Microsoft YaHei", sans-serif; letter-spacing: -.02em; }
 .intro-lead { margin: 0; color: #516970; line-height: 1.75; font-size: 14px; }
 .intro-rules { display: grid; gap: 8px; margin: 24px 0; }
 .intro-rules > div { display: grid; grid-template-columns: 44px 1fr; gap: 12px; align-items: center; }
@@ -426,8 +553,24 @@ kbd { font: 700 10px/1 "Cascadia Mono", monospace; color: #61727a; }
 .result-failure .result-stamp { background: var(--danger); }
 .result-card h2 { margin: 14px 0 8px; font: 800 28px/1.1 "Bahnschrift SemiCondensed", "Microsoft YaHei", sans-serif; }
 .result-card p { margin: 0; color: #526a72; font-size: 13px; line-height: 1.6; }
-.result-stats { display: flex; gap: 18px; margin: 18px 0; padding: 12px 0; border-block: 1px solid rgba(24,50,74,.2); font-size: 11px; }
+.result-stats { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 18px 0 14px; padding: 12px 0; border-block: 1px solid rgba(24,50,74,.2); font-size: 11px; }
 .result-stats b { font-family: "Cascadia Mono", monospace; font-size: 15px; }
+
+.result-quote { margin: 0 0 18px; padding: 13px 15px; background: rgba(24,50,74,.05); border-left: 3px solid var(--amber); }
+.result-quote blockquote { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.55; color: var(--ink); }
+.result-quote .quote-en { display: block; margin-top: 6px; font-size: 10px; font-weight: 400; font-style: italic; color: #7a8b91; }
+.result-quote figcaption { margin-top: 9px; font-size: 10px; font-weight: 700; color: #75868c; }
+.result-quote figcaption small { margin-left: 7px; font-weight: 400; color: #93a1a6; }
+
+.intro-content h2.intro-quote-title {
+  margin: 6px 0 6px;
+  font: italic 600 clamp(18px, 2.5vw, 24px)/1.42 "Bahnschrift SemiCondensed", "Microsoft YaHei", sans-serif;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+.intro-quote-attr { margin: 0 0 14px; font-size: 12px; font-weight: 700; color: var(--ink-soft); }
+.intro-credit { margin: 18px 0 0; font-size: 11px; color: #75868c; }
+.intro-credit b { color: var(--ink-soft); }
 
 .rotate-note { display: none; }
 
@@ -439,6 +582,19 @@ kbd { font: 700 10px/1 "Cascadia Mono", monospace; color: #61727a; }
 @keyframes result-in {
   from { opacity: 0; transform: translate(-50%, calc(-50% + 10px)) scale(.96); filter: blur(3px); }
   to { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: blur(0); }
+}
+
+/* gentle entrance for panel sections that appear on build/test mode switches */
+@keyframes panel-fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.level-picker,
+.section-designer,
+.load-picker,
+.mission-steps,
+.girder-meter {
+  animation: panel-fade 240ms cubic-bezier(.2, .8, .2, 1) both;
 }
 
 @media (max-width: 1180px) {
@@ -472,8 +628,8 @@ kbd { font: 700 10px/1 "Cascadia Mono", monospace; color: #61727a; }
   .workbench { padding-top: 10px; }
   .material-button { min-height: 52px; }
   .field-note { display: none; }
-  .intro-art { min-height: 420px; }
-  .intro-content { padding-top: 34px; }
+  .hero-stage { height: 150px; }
+  .intro-content { padding-top: 22px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

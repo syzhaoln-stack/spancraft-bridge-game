@@ -5,7 +5,7 @@ const DEFAULT_STATE: UIState = {
   mode: 'build',
   material: 'road',
   loadCase: 'sedan',
-  level: 'truss',
+  level: 'beam',
   budget: 0,
   budgetMax: 2600,
   memberCount: 0,
@@ -14,6 +14,15 @@ const DEFAULT_STATE: UIState = {
   hint: '装载示范桥，先看一次完整试车。',
   canUndo: false,
   hasBridge: false,
+  beamSection: { shape: 'solid', depth: 33, profile: 'constant' },
+  beamWeight: 100,
+  beamStiffness: 100,
+  beamCapacity: 100,
+  beamStress: 0,
+  indestructible: false,
+  midspanSupport: false,
+  buildTool: 'line',
+  arcSpacing: 55,
 };
 
 class GameBridge extends EventTarget {

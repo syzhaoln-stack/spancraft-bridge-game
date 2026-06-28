@@ -3,14 +3,16 @@ import Phaser from 'phaser';
 import { gameConfig } from './game/config';
 import { gameBridge } from './game/gameBridge';
 import { LEVELS } from './game/constants';
-import type { LevelKey, LoadCaseKey, MaterialKey, UIState } from './game/types';
+import type { ArcSpacing, LevelKey, LoadCaseKey, MaterialKey, UIState } from './game/types';
+import { IntroSheet } from './IntroSheet';
+import { QUOTES } from './game/quotes';
 import './styles.css';
 
 const materialMeta: Array<{ key: MaterialKey; icon: string; name: string; detail: string; hotkey: string }> = [
   { key: 'road', icon: '═', name: '桥面', detail: '车辆必须沿它通行', hotkey: '1' },
   { key: 'wood', icon: '╱', name: '木材', detail: '便宜，适合三角斜撑', hotkey: '2' },
   { key: 'steel', icon: '◆', name: '钢材', detail: '坚固，但会迅速吃掉预算', hotkey: '3' },
-  { key: 'cable', icon: '⌒', name: '缆索', detail: '只受拉，受压会松弛', hotkey: '4' },
+  { key: 'cable', icon: '⌒', name: '高强缆索', detail: '强度提高，只受拉不受压', hotkey: '4' },
 ];
 
 const loadMeta: Array<{ key: LoadCaseKey; icon: string; name: string; detail: string }> = [
@@ -19,19 +21,30 @@ const loadMeta: Array<{ key: LoadCaseKey; icon: string; name: string; detail: st
   { key: 'crowd', icon: '♟', name: '通勤人群', detail: '多点移动荷载' },
 ];
 
-const levelOrder: LevelKey[] = ['truss', 'arch', 'cableStayed', 'suspension'];
+const levelOrder: LevelKey[] = ['beam', 'truss', 'arch', 'cableStayed', 'suspension'];
+const arcSpacings: ArcSpacing[] = [40, 55, 80, 110];
 
 const levelExplanation: Record<LevelKey, string> = {
+  beam: '梁高增加时，惯性矩 I 按高度的三次方增长，抗弯截面模量 W 按二次方增长。箱梁把材料移向上下缘，用更小自重获得更高效率。',
   truss: '四边形容易歪斜，三角形边长确定后形状稳定。连续三角形把桥面荷载转化为杆件的拉力与压力。',
   arch: '拱肋以轴向压力为主，把荷载推向两岸；连续截面还要抵抗移动荷载造成的局部弯矩。',
   cableStayed: '斜拉索直接托住桥面，桥塔承受压力和弯矩；主跨索与边跨背索共同控制塔顶偏移。',
-  suspension: '吊杆把桥面荷载送入主缆，主缆只受拉并把水平分力交给边锚，桥塔则承担竖向压力与弯矩。',
+  suspension: '吊杆沿全跨把桥面荷载送入主缆；双塔直接落在两岸基础上，形成没有边跨的单跨悬索体系。',
 };
 
 export default function App() {
   const [state, setState] = useState<UIState>(gameBridge.snapshot());
   const [introOpen, setIntroOpen] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [quoteIdx, setQuoteIdx] = useState(0);
+
+  // Cycle to the next bridge quotation each time a load test finishes.
+  useEffect(() => {
+    if (state.mode === 'success' || state.mode === 'failure') {
+      setQuoteIdx((index) => (index + 1) % QUOTES.length);
+    }
+  }, [state.mode]);
+  const quote = QUOTES[quoteIdx];
 
   useEffect(() => {
     const game = new Phaser.Game(gameConfig);
@@ -83,6 +96,7 @@ export default function App() {
   const isResult = state.mode === 'success' || state.mode === 'failure';
   const budgetRatio = Math.min(100, (state.budget / state.budgetMax) * 100);
   const stressRatio = Math.min(100, state.maxStress);
+  const beamStressRatio = Math.min(100, state.beamStress);
   const selectedLoad = loadMeta.find((item) => item.key === state.loadCase) ?? loadMeta[0];
   const selectedLevel = LEVELS[state.level];
 
@@ -135,6 +149,38 @@ export default function App() {
             ))}
           </div>
 
+          <section className="curve-tool" aria-label="构件成形工具">
+            <div className="curve-tool-heading"><span>成形工具</span><small>拖动两端点</small></div>
+            <div className="tool-mode-options">
+              <button
+                className={state.buildTool === 'line' ? 'is-active' : ''}
+                onClick={() => gameBridge.command({ type: 'build-tool', tool: 'line' })}
+                disabled={state.mode !== 'build'}
+                aria-pressed={state.buildTool === 'line'}
+              >／ 直线</button>
+              <button
+                className={state.buildTool === 'arc' ? 'is-active' : ''}
+                onClick={() => gameBridge.command({ type: 'build-tool', tool: 'arc' })}
+                disabled={state.mode !== 'build'}
+                aria-pressed={state.buildTool === 'arc'}
+              >⌒ 弧线</button>
+            </div>
+            {state.buildTool === 'arc' && (
+              <div className="arc-spacing-options" aria-label="弧线桥向分段距离">
+                <span>分段</span>
+                {arcSpacings.map((spacing) => (
+                  <button
+                    key={spacing}
+                    className={state.arcSpacing === spacing ? 'is-active' : ''}
+                    onClick={() => gameBridge.command({ type: 'arc-spacing', spacing })}
+                    disabled={state.mode !== 'build'}
+                    aria-pressed={state.arcSpacing === spacing}
+                  >{spacing}</button>
+                ))}
+              </div>
+            )}
+          </section>
+
           <div className="rail-tools">
             <button onClick={() => gameBridge.command({ type: 'undo' })} disabled={!state.canUndo}>↶ 撤销</button>
             <button onClick={() => gameBridge.command({ type: 'clear' })} disabled={state.mode !== 'build'}>清空</button>
@@ -163,7 +209,14 @@ export default function App() {
                 <div className="result-stats">
                   <span><b>{state.budget}</b> / {state.budgetMax} 预算</span>
                   <span><b>{state.maxStress}%</b> 峰值受力</span>
+                  <span><b>{state.beamStress}%</b> 主梁抗弯</span>
                 </div>
+                <figure className="result-quote">
+                  <blockquote>{quote.text}{quote.en && <cite className="quote-en">{quote.en}</cite>}</blockquote>
+                  {quote.author && (
+                    <figcaption>—— {quote.author}{quote.brief && <small>{quote.brief}</small>}</figcaption>
+                  )}
+                </figure>
                 <button className="primary-button" onClick={() => gameBridge.command({ type: 'stop' })}>
                   {state.mode === 'success' ? '回到工地继续优化' : '回到断点补强'}
                 </button>
@@ -184,10 +237,12 @@ export default function App() {
             <p>{selectedLevel.mission}</p>
           </div>
 
+          {state.mode === 'build' && (
+          <>
           <section className="level-picker" aria-labelledby="level-picker-title">
             <div className="load-picker-heading">
               <span id="level-picker-title">选择关卡</span>
-              <small>{selectedLevel.number} / 04</small>
+              <small>{selectedLevel.number} / 05</small>
             </div>
             <div className="level-options">
               {levelOrder.map((levelKey) => {
@@ -206,6 +261,64 @@ export default function App() {
                   </button>
                 );
               })}
+            </div>
+          </section>
+
+          <section className="section-designer" aria-labelledby="section-designer-title">
+            <div className="section-designer-heading">
+              <div>
+                <span id="section-designer-title">主梁截面</span>
+                <small>越轻越省，抗弯越高效</small>
+              </div>
+            </div>
+
+            <div className="section-shape-options" aria-label="截面形式">
+              <button
+                className={state.beamSection.shape === 'solid' ? 'is-active' : ''}
+                onClick={() => gameBridge.command({ type: 'beam-section', patch: { shape: 'solid' } })}
+                disabled={state.mode !== 'build'}
+                aria-pressed={state.beamSection.shape === 'solid'}
+              >
+                <svg className="section-glyph" viewBox="0 0 34 20" aria-hidden="true">
+                  <rect x="1.5" y="6" width="31" height="11" rx="2.5" fill="#728f98" stroke="#18324a" strokeWidth="2" />
+                  <circle cx="9" cy="11.5" r="2.5" fill="#e8e0cb" />
+                  <circle cx="17" cy="11.5" r="2.5" fill="#e8e0cb" />
+                  <circle cx="25" cy="11.5" r="2.5" fill="#e8e0cb" />
+                </svg>
+                <span><b>空心板梁</b><small>小跨经济</small></span>
+              </button>
+              <button
+                className={state.beamSection.shape === 'box' ? 'is-active' : ''}
+                onClick={() => gameBridge.command({ type: 'beam-section', patch: { shape: 'box' } })}
+                disabled={state.mode !== 'build'}
+                aria-pressed={state.beamSection.shape === 'box'}
+              >
+                <svg className="section-glyph" viewBox="0 0 34 20" aria-hidden="true">
+                  <polygon points="7,8 27,8 30,17 4,17" fill="#728f98" stroke="#18324a" strokeWidth="2" strokeLinejoin="round" />
+                  <polygon points="11,10.5 23,10.5 24.5,15 9.5,15" fill="#e8e0cb" />
+                  <rect x="1.5" y="5" width="31" height="3.6" rx="1" fill="#728f98" stroke="#18324a" strokeWidth="1.5" />
+                </svg>
+                <span><b>箱梁</b><small>大跨更轻</small></span>
+              </button>
+            </div>
+
+            <div className="design-assists" aria-label="结构辅助选项">
+              <button
+                className={state.midspanSupport ? 'is-active' : ''}
+                onClick={() => gameBridge.command({ type: 'midspan-support', enabled: !state.midspanSupport })}
+                disabled={state.mode !== 'build' || state.level !== 'beam'}
+                aria-pressed={state.midspanSupport}
+              >
+                <span>┴</span><b>跨中支座</b><small>{state.level === 'beam' ? '改为两跨连续梁' : '仅梁桥关可用'}</small>
+              </button>
+              <button
+                className={`indestructible-option ${state.indestructible ? 'is-active' : ''}`}
+                onClick={() => gameBridge.command({ type: 'indestructible', enabled: !state.indestructible })}
+                disabled={state.mode !== 'build'}
+                aria-pressed={state.indestructible}
+              >
+                <span>∞</span><b>牢不可破</b><small>保留应力，不触发断裂</small>
+              </button>
             </div>
           </section>
 
@@ -237,25 +350,36 @@ export default function App() {
               <span>1</span>
               <div><strong>连接桥面</strong><small>桥面必须从西岸连续到东岸</small></div>
             </li>
-            <li className={state.hasBridge && state.mode === 'build' ? 'is-current' : state.mode !== 'build' ? 'is-done' : ''}>
+            <li className={state.hasBridge ? 'is-current' : ''}>
               <span>2</span>
               <div><strong>{selectedLevel.concept}</strong><small>{selectedLevel.hint}</small></div>
             </li>
-            <li className={state.mode === 'test' ? 'is-current' : state.mode === 'success' ? 'is-done' : ''}>
+            <li className={state.hasBridge ? 'is-current' : ''}>
               <span>3</span>
-              <div><strong>开始加载</strong><small>绿色安全，红色构件即将断裂</small></div>
+              <div><strong>开始加载</strong><small>点击下方 ▶ 通车，绿色安全、红色将断</small></div>
             </li>
           </ol>
+          </>
+          )}
 
           <div className="meter-card">
             <div className="meter-label"><span>建造预算</span><b>{state.budget} / {state.budgetMax}</b></div>
             <div className="meter-track"><i className={budgetRatio > 90 ? 'meter-hot' : ''} style={{ transform: `scaleX(${budgetRatio / 100})` }} /></div>
           </div>
 
+          {state.mode !== 'build' && (
+          <>
+          <div className="meter-card girder-meter">
+            <div className="meter-label"><span>主梁抗弯利用率</span><b>{state.beamStress}%</b></div>
+            <div className="meter-track stress"><i style={{ transform: `scaleX(${beamStressRatio / 100})` }} /></div>
+          </div>
+
           <div className="meter-card">
-            <div className="meter-label"><span>峰值受力</span><b>{state.mode === 'build' ? '等待加载' : `${state.maxStress}%`}</b></div>
+            <div className="meter-label"><span>峰值受力</span><b>{state.maxStress}%</b></div>
             <div className="meter-track stress"><i style={{ transform: `scaleX(${stressRatio / 100})` }} /></div>
           </div>
+          </>
+          )}
 
           <details className="field-note">
             <summary>为什么这样传力？</summary>
@@ -288,31 +412,11 @@ export default function App() {
       </footer>
 
       {introOpen && (
-        <div className="intro-backdrop">
-          <section className="intro-sheet" role="dialog" aria-modal="true" aria-labelledby="intro-title">
-            <button className="intro-close" onClick={() => setIntroOpen(false)} aria-label="关闭说明">×</button>
-            <div className="intro-art" aria-hidden="true">
-              <div className="mini-bridge">
-                <i /><i /><i /><i /><i />
-              </div>
-              <img src={`${import.meta.env.BASE_URL}assets/sprites/sedan.png`} alt="" />
-            </div>
-            <div className="intro-content">
-              <p className="eyebrow">30 秒上手 · 不需要工程基础</p>
-              <h2 id="intro-title">先让一辆小车过去。</h2>
-              <p className="intro-lead">拖动节点搭桥，点击试车，看构件从绿色变黄、变红。桥断了不是惩罚——它在告诉你下一根杆该加在哪里。</p>
-              <div className="intro-rules">
-                <div><span>拖</span><p><b>从节点拖出构件</b><small>自动吸附到网格</small></p></div>
-                <div><span>看</span><p><b>观察受力颜色</b><small>最先变红处最需要补强</small></p></div>
-                <div><span>改</span><p><b>立即回场重试</b><small>设计不会丢失</small></p></div>
-              </div>
-              <div className="intro-actions">
-                <button className="primary-button" onClick={beginWithBlueprint}>装载示范桥并开始</button>
-                <button className="text-button" onClick={beginEmpty}>我想从空场地开始</button>
-              </div>
-            </div>
-          </section>
-        </div>
+        <IntroSheet
+          onStartBlueprint={beginWithBlueprint}
+          onStartEmpty={beginEmpty}
+          onClose={() => setIntroOpen(false)}
+        />
       )}
 
       <div className="rotate-note">请横屏体验桥梁工地</div>

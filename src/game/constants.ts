@@ -41,9 +41,18 @@ export const LEVELS: Record<LevelKey, {
   hint: string;
   budget: number;
 }> = {
-  truss: {
+  beam: {
     number: '01',
-    name: '峡谷邮路 · 桁架桥',
+    name: '深沟寺 · 混凝土梁桥',
+    shortName: '梁桥',
+    mission: '用截面形状与梁高抵抗跨中弯矩。',
+    concept: '截面抗弯',
+    hint: '面积 A 决定自重，惯性矩 I 决定刚度，截面模量 W 决定抗弯强度。',
+    budget: 2600,
+  },
+  truss: {
+    number: '02',
+    name: '新世纪 · 桁架桥',
     shortName: '桁架',
     mission: '用连续三角形把荷载送往两岸。',
     concept: '三角形稳定',
@@ -51,8 +60,8 @@ export const LEVELS: Record<LevelKey, {
     budget: 2600,
   },
   arch: {
-    number: '02',
-    name: '石门峡 · 系杆拱桥',
+    number: '03',
+    name: '火炬广场 · 系杆拱桥',
     shortName: '拱桥',
     mission: '让拱肋以压力把桥面荷载推向两岸。',
     concept: '拱肋压弯',
@@ -60,8 +69,8 @@ export const LEVELS: Record<LevelKey, {
     budget: 5000,
   },
   cableStayed: {
-    number: '03',
-    name: '双塔港 · 斜拉桥',
+    number: '04',
+    name: '锦绣 · 斜拉桥',
     shortName: '斜拉',
     mission: '平衡主跨斜拉索与边跨背索。',
     concept: '主塔压弯',
@@ -69,12 +78,12 @@ export const LEVELS: Record<LevelKey, {
     budget: 5800,
   },
   suspension: {
-    number: '04',
-    name: '大江口 · 悬索桥',
+    number: '05',
+    name: '星海 · 悬索桥',
     shortName: '悬索',
-    mission: '用边锚锁住主缆，再由吊杆托住桥面。',
-    concept: '主缆与边锚',
-    hint: '主缆垂跨比约为 1/5；边锚锁住拉力，桥塔截面承担主缆传来的压弯。',
+    mission: '让岸上双塔与全跨吊索共同托住主梁。',
+    concept: '单跨主缆',
+    hint: '双塔设在两岸，主缆连续跨越全桥；等距吊索把主梁荷载逐点送入主缆。',
     budget: 5200,
   },
 };
@@ -98,8 +107,8 @@ export const MATERIALS: Record<MaterialKey, {
   capacity: number;
   weight: number;
 }> = {
-  road: { name: '桥面', color: 0x425a66, css: '#425a66', width: 11, cost: 1.25, compliance: 0.0000012, capacity: 150000, weight: 230 },
+  road: { name: '桥面', color: 0x425a66, css: '#425a66', width: 11, cost: 1.25, compliance: 0.000001, capacity: 210000, weight: 230 },
   wood: { name: '木材', color: 0xd58a4b, css: '#d58a4b', width: 7, cost: 0.9, compliance: 0.0000018, capacity: 52000, weight: 100 },
   steel: { name: '钢材', color: 0x7699a6, css: '#7699a6', width: 7, cost: 1.7, compliance: 0.00000035, capacity: 155000, weight: 170 },
-  cable: { name: '缆索', color: 0xe6c65b, css: '#e6c65b', width: 3, cost: 1.1, compliance: 0.000001, capacity: 108000, weight: 35 },
+  cable: { name: '缆索', color: 0xe6c65b, css: '#e6c65b', width: 3, cost: 1.1, compliance: 0.000001, capacity: 220000, weight: 35 },
 };

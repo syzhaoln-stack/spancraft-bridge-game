@@ -1,8 +1,17 @@
 import Phaser from 'phaser';
 import { ASSET_KEYS, LEVELS, LOAD_CASES, MATERIALS, SCENE_KEYS, WORLD } from '../constants';
 import { gameBridge } from '../gameBridge';
-import type { BridgeMember, GameCommand, MaterialKey } from '../types';
+import type { BridgeMember, BridgeNode, GameCommand, MaterialKey } from '../types';
 import { BridgePhysics } from '../systems/BridgePhysics';
+
+// Visual-only exaggeration of the deformed shape (deflection) during load tests.
+// Physics positions are unchanged; we only scale how far nodes appear to move from rest.
+const DEFORM_SCALE = 2.1;
+// Main girder section depth is drawn at a fraction of its physical value so the deck reads slim.
+const GIRDER_RENDER_SCALE = 0.34;
+// Wall-clock speed-up of the load test: scales simulated time uniformly (vehicle + physics
+// advance together), so crossings feel faster while the mechanics/breaking are unchanged.
+const TIME_SCALE = 1.6;
 
 export class GameScene extends Phaser.Scene {
   private bridge = new BridgePhysics();
@@ -12,6 +21,7 @@ export class GameScene extends Phaser.Scene {
   private waterGraphics!: Phaser.GameObjects.Graphics;
   private loadSprites: Phaser.GameObjects.Image[] = [];
   private levelLabels: Phaser.GameObjects.Text[] = [];
+  private scenery: { obj: Phaser.GameObjects.Graphics; vx: number; baseY: number; bob: number; phase: number; min: number; max: number }[] = [];
   private dragStartId: number | null = null;
   private pointerX = 0;
   private pointerY = 0;
@@ -28,6 +38,7 @@ export class GameScene extends Phaser.Scene {
   create() {
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.drawEnvironment();
+    this.createScenery();
     this.waterGraphics = this.add.graphics().setDepth(2);
     this.bridgeGraphics = this.add.graphics().setDepth(10);
     this.nodeGraphics = this.add.graphics().setDepth(12);
@@ -53,7 +64,7 @@ export class GameScene extends Phaser.Scene {
 
   update(time: number, deltaMs: number) {
     if (this.bridge.mode === 'test') {
-      this.accumulator += Math.min(deltaMs / 1000, 0.04);
+      this.accumulator += Math.min(deltaMs / 1000, 0.04) * TIME_SCALE;
       const step = 1 / 120;
       while (this.accumulator >= step) {
         const events = this.bridge.step(step);
@@ -66,6 +77,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    this.animateScenery(time, deltaMs);
     this.renderWater(time);
     this.renderBridge();
     this.renderLoads(time);
@@ -86,6 +98,36 @@ export class GameScene extends Phaser.Scene {
       this.bridge.loadCase = command.loadCase;
       this.playSound(ASSET_KEYS.Click, 0.4);
       this.publish(`试验荷载已切换为${LOAD_CASES[command.loadCase].name}。`);
+    } else if (command.type === 'beam-section') {
+      if (this.bridge.setBeamSection(command.patch)) {
+        this.playSound(ASSET_KEYS.Click, 0.32);
+        this.publish('主梁截面已更新：梁高改变 I 与 W，空心率改变自重与材料用量。');
+      }
+    } else if (command.type === 'indestructible') {
+      if (this.bridge.mode !== 'build') return;
+      this.bridge.indestructible = command.enabled;
+      this.playSound(ASSET_KEYS.Click, 0.35);
+      this.publish(command.enabled
+        ? '牢不可破已开启：保留受力颜色，但构件不会断裂。'
+        : '牢不可破已关闭：恢复按强度与累计超载判定破坏。');
+    } else if (command.type === 'midspan-support') {
+      if (this.bridge.setMidspanSupport(command.enabled)) {
+        this.playSound(ASSET_KEYS.Confirm, 0.45);
+        this.publish(command.enabled
+          ? '已设置跨中桥墩，简支梁变为两跨连续梁。'
+          : '已移除跨中桥墩，恢复单跨梁桥。');
+      }
+    } else if (command.type === 'build-tool') {
+      if (this.bridge.mode !== 'build') return;
+      this.bridge.buildTool = command.tool;
+      this.playSound(ASSET_KEYS.Click, 0.3);
+      this.publish(command.tool === 'arc'
+        ? '弧线工具：从起点拖到终点，按桥向等距自动分段；缆索下垂，钢材向上起拱。'
+        : '直线工具：从节点拖到目标位置建造单根构件。');
+    } else if (command.type === 'arc-spacing') {
+      if (this.bridge.mode !== 'build') return;
+      this.bridge.arcSpacing = command.spacing;
+      this.publish(`弧线桥向分段距离设为约 ${command.spacing}px。`);
     } else if (command.type === 'level') {
       if (this.bridge.mode !== 'build') return;
       this.bridge.loadLevel(command.level);
@@ -148,12 +190,9 @@ export class GameScene extends Phaser.Scene {
 
   private onPointerUp(pointer: Phaser.Input.Pointer) {
     if (this.dragStartId === null || this.bridge.mode !== 'build') return;
-    const result = this.bridge.addMemberFrom(
-      this.dragStartId,
-      pointer.worldX,
-      pointer.worldY,
-      this.bridge.material,
-    );
+    const result = this.bridge.buildTool === 'arc'
+      ? this.bridge.addArcFrom(this.dragStartId, pointer.worldX, pointer.worldY, this.bridge.material, this.bridge.arcSpacing)
+      : this.bridge.addMemberFrom(this.dragStartId, pointer.worldX, pointer.worldY, this.bridge.material);
     this.dragStartId = null;
     if (result.ok) this.playSound(ASSET_KEYS.Click, 0.45);
     else this.playSound(ASSET_KEYS.Error, 0.32);
@@ -169,6 +208,18 @@ export class GameScene extends Phaser.Scene {
     for (const member of ordered) this.drawMember(member);
 
     for (const node of this.bridge.nodes) {
+      const nx = this.dnx(node);
+      const ny = this.dny(node);
+      if (node.supportY) {
+        this.nodeGraphics.fillStyle(0x6f8991, 1);
+        this.nodeGraphics.fillRect(node.x - 7, node.y + 12, 14, 168);
+        this.nodeGraphics.fillStyle(0x294b5b, 1);
+        this.nodeGraphics.fillRect(node.x - 24, 472, 48, 12);
+        this.nodeGraphics.lineStyle(2, 0x18324a, 0.9);
+        this.nodeGraphics.strokeRect(node.x - 7, node.y + 12, 14, 168);
+        this.nodeGraphics.fillStyle(0xf1c75b, 1);
+        this.nodeGraphics.fillTriangle(node.x, node.y + 4, node.x - 11, node.y + 18, node.x + 11, node.y + 18);
+      }
       if (node.fixed) {
         if (node.y > 420) {
           this.nodeGraphics.fillStyle(0x294b5b, 1);
@@ -185,21 +236,39 @@ export class GameScene extends Phaser.Scene {
         }
       }
       this.nodeGraphics.fillStyle(node.fixed ? 0xf7d978 : 0xf5efe0, 1);
-      this.nodeGraphics.fillCircle(node.x, node.y, node.fixed ? 7 : 5);
+      this.nodeGraphics.fillCircle(nx, ny, node.fixed ? 7 : 5);
       this.nodeGraphics.lineStyle(2, 0x18324a, 1);
-      this.nodeGraphics.strokeCircle(node.x, node.y, node.fixed ? 7 : 5);
+      this.nodeGraphics.strokeCircle(nx, ny, node.fixed ? 7 : 5);
     }
 
     if (this.dragStartId !== null) {
       const start = this.bridge.nodes.find((node) => node.id === this.dragStartId);
       if (start) {
-        const sx = Math.round(this.pointerX / WORLD.grid) * WORLD.grid;
-        const sy = Math.round(this.pointerY / WORLD.grid) * WORLD.grid;
         const material = MATERIALS[this.bridge.material];
         this.previewGraphics.lineStyle(material.width, material.color, 0.52);
-        this.previewGraphics.lineBetween(start.x, start.y, sx, sy);
-        this.previewGraphics.fillStyle(material.color, 0.8);
-        this.previewGraphics.fillCircle(sx, sy, 6);
+        if (this.bridge.buildTool === 'arc') {
+          const points = this.bridge.getArcPreview(
+            start.id,
+            this.pointerX,
+            this.pointerY,
+            this.bridge.material,
+            this.bridge.arcSpacing,
+          );
+          if (points.length > 1) {
+            this.previewGraphics.beginPath();
+            this.previewGraphics.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i += 1) this.previewGraphics.lineTo(points[i].x, points[i].y);
+            this.previewGraphics.strokePath();
+            this.previewGraphics.fillStyle(material.color, 0.8);
+            for (const point of points) this.previewGraphics.fillCircle(point.x, point.y, 4);
+          }
+        } else {
+          const sx = Math.round(this.pointerX / WORLD.grid) * WORLD.grid;
+          const sy = Math.round(this.pointerY / WORLD.grid) * WORLD.grid;
+          this.previewGraphics.lineBetween(start.x, start.y, sx, sy);
+          this.previewGraphics.fillStyle(material.color, 0.8);
+          this.previewGraphics.fillCircle(sx, sy, 6);
+        }
       }
     }
   }
@@ -229,7 +298,7 @@ export class GameScene extends Phaser.Scene {
       }
       sprite
         .setVisible(true)
-        .setPosition(pose.x, pose.y)
+        .setPosition(pose.x, pose.y + this.deckExaggerationDelta(pose.x))
         .setRotation(pose.angle);
     }
   }
@@ -248,7 +317,9 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(18));
     };
 
-    if (this.bridge.level === 'arch') {
+    if (this.bridge.level === 'beam') {
+      addLabel(480, 228, '主梁截面实验：A · I · W');
+    } else if (this.bridge.level === 'arch') {
       addLabel(480, 128, '拱矢高 f / 跨度 L ≈ 1 / 5');
     } else if (this.bridge.level === 'cableStayed') {
       addLabel(118, 354, '边跨背索锚点');
@@ -263,28 +334,148 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private get deformScale() {
+    return this.bridge.mode === 'build' ? 1 : DEFORM_SCALE;
+  }
+
+  // Apparent node position: rest position plus the exaggerated displacement.
+  private dnx(node: BridgeNode) {
+    return node.baseX + (node.x - node.baseX) * this.deformScale;
+  }
+
+  private dny(node: BridgeNode) {
+    return node.baseY + (node.y - node.baseY) * this.deformScale;
+  }
+
+  // Vertical offset added to a load sprite so it rides the exaggerated deck instead of the real one.
+  private deckExaggerationDelta(x: number) {
+    if (this.deformScale === 1) return 0;
+    let best: { a: BridgeNode; b: BridgeNode; d: number } | null = null;
+    for (const member of this.bridge.members) {
+      if (member.material !== 'road' || member.broken) continue;
+      const a = this.bridge.nodes.find((node) => node.id === member.a);
+      const b = this.bridge.nodes.find((node) => node.id === member.b);
+      if (!a || !b) continue;
+      if (x < Math.min(a.x, b.x) - 2 || x > Math.max(a.x, b.x) + 2) continue;
+      const d = Math.abs(x - (a.x + b.x) * 0.5);
+      if (!best || d < best.d) best = { a, b, d };
+    }
+    if (!best) return 0;
+    const { a, b } = best;
+    const t = Math.abs(b.x - a.x) < 0.001 ? 0.5 : Math.max(0, Math.min(1, (x - a.x) / (b.x - a.x)));
+    const realY = a.y + (b.y - a.y) * t;
+    const shownY = this.dny(a) + (this.dny(b) - this.dny(a)) * t;
+    return shownY - realY;
+  }
+
   private drawMember(member: BridgeMember) {
     const a = this.bridge.nodes.find((node) => node.id === member.a);
     const b = this.bridge.nodes.find((node) => node.id === member.b);
     if (!a || !b) return;
+    const ax = this.dnx(a);
+    const ay = this.dny(a);
+    const bx = this.dnx(b);
+    const by = this.dny(b);
     const material = MATERIALS[member.material];
     const memberWidth = material.width + (member.behavior === 'frame' ? 4 : 0);
     const testMode = this.bridge.mode !== 'build';
     const color = testMode ? stressColor(member.stress) : material.color;
 
-    if (member.broken) {
-      const mx = (a.x + b.x) * 0.5;
-      const my = (a.y + b.y) * 0.5;
-      const gapX = (b.x - a.x) * 0.04;
-      const gapY = (b.y - a.y) * 0.04;
-      this.drawBeamLine(a.x, a.y, mx - gapX, my - gapY, memberWidth, color, member.material);
-      this.drawBeamLine(mx + gapX, my + gapY, b.x, b.y, memberWidth, color, member.material);
+    if (member.material === 'road') {
+      this.drawGirderMember(ax, ay, bx, by, color, member.broken);
       return;
     }
-    this.drawBeamLine(a.x, a.y, b.x, b.y, memberWidth, color, member.material);
+
+    if (member.broken) {
+      const mx = (ax + bx) * 0.5;
+      const my = (ay + by) * 0.5;
+      const gapX = (bx - ax) * 0.04;
+      const gapY = (by - ay) * 0.04;
+      this.drawBeamLine(ax, ay, mx - gapX, my - gapY, memberWidth, color, member.material);
+      this.drawBeamLine(mx + gapX, my + gapY, bx, by, memberWidth, color, member.material);
+      return;
+    }
+    this.drawBeamLine(ax, ay, bx, by, memberWidth, color, member.material);
     if (member.behavior === 'frame') {
       this.bridgeGraphics.lineStyle(2, testMode ? color : 0xdce8e5, 0.75);
-      this.bridgeGraphics.lineBetween(a.x, a.y, b.x, b.y);
+      this.bridgeGraphics.lineBetween(ax, ay, bx, by);
+    }
+  }
+
+  private drawGirderMember(ax: number, ay: number, bx: number, by: number, color: number, broken: boolean) {
+    const depthA = this.bridge.getGirderDepth(ax) * GIRDER_RENDER_SCALE;
+    const depthB = this.bridge.getGirderDepth(bx) * GIRDER_RENDER_SCALE;
+    if (!broken) {
+      this.drawGirderSegment(ax, ay, depthA, bx, by, depthB, color, true);
+      return;
+    }
+    const gapStart = 0.46;
+    const gapEnd = 0.54;
+    const x1 = ax + (bx - ax) * gapStart;
+    const y1 = ay + (by - ay) * gapStart;
+    const d1 = depthA + (depthB - depthA) * gapStart;
+    const x2 = ax + (bx - ax) * gapEnd;
+    const y2 = ay + (by - ay) * gapEnd;
+    const d2 = depthA + (depthB - depthA) * gapEnd;
+    this.drawGirderSegment(ax, ay, depthA, x1, y1, d1, color, true);
+    this.drawGirderSegment(x2, y2, d2, bx, by, depthB, color, true);
+  }
+
+  private drawGirderSegment(
+    ax: number,
+    ay: number,
+    depthA: number,
+    bx: number,
+    by: number,
+    depthB: number,
+    color: number,
+    showLane: boolean,
+  ) {
+    this.bridgeGraphics.fillStyle(0x173044, 0.42);
+    this.bridgeGraphics.beginPath();
+    this.bridgeGraphics.moveTo(ax + 3, ay + 4);
+    this.bridgeGraphics.lineTo(bx + 3, by + 4);
+    this.bridgeGraphics.lineTo(bx + 3, by + depthB + 5);
+    this.bridgeGraphics.lineTo(ax + 3, ay + depthA + 5);
+    this.bridgeGraphics.closePath();
+    this.bridgeGraphics.fillPath();
+
+    this.bridgeGraphics.fillStyle(color, 1);
+    this.bridgeGraphics.lineStyle(2, 0x18324a, 0.92);
+    this.bridgeGraphics.beginPath();
+    this.bridgeGraphics.moveTo(ax, ay);
+    this.bridgeGraphics.lineTo(bx, by);
+    this.bridgeGraphics.lineTo(bx, by + depthB);
+    this.bridgeGraphics.lineTo(ax, ay + depthA);
+    this.bridgeGraphics.closePath();
+    this.bridgeGraphics.fillPath();
+    this.bridgeGraphics.strokePath();
+
+    if (this.bridge.beamSection.shape === 'box') {
+      this.bridgeGraphics.fillStyle(0x18324a, 0.5);
+      this.bridgeGraphics.beginPath();
+      this.bridgeGraphics.moveTo(ax + 2, ay + depthA * 0.34);
+      this.bridgeGraphics.lineTo(bx - 2, by + depthB * 0.34);
+      this.bridgeGraphics.lineTo(bx - 2, by + depthB * 0.7);
+      this.bridgeGraphics.lineTo(ax + 2, ay + depthA * 0.7);
+      this.bridgeGraphics.closePath();
+      this.bridgeGraphics.fillPath();
+    }
+
+    this.bridgeGraphics.lineStyle(2, 0xf6e6b5, 0.88);
+    this.bridgeGraphics.lineBetween(ax, ay, bx, by);
+    if (!showLane) return;
+    const length = Math.hypot(bx - ax, by - ay);
+    const count = Math.max(1, Math.floor(length / 22));
+    for (let i = 0; i < count; i += 1) {
+      const t1 = (i + 0.2) / count;
+      const t2 = (i + 0.65) / count;
+      this.bridgeGraphics.lineBetween(
+        ax + (bx - ax) * t1,
+        ay + (by - ay) * t1,
+        ax + (bx - ax) * t2,
+        ay + (by - ay) * t2,
+      );
     }
   }
 
@@ -327,8 +518,6 @@ export class GameScene extends Phaser.Scene {
 
     sky.fillStyle(0xf5ead1, 0.72);
     sky.fillCircle(760, 92, 38);
-    drawCloud(sky, 170, 95, 0.7);
-    drawCloud(sky, 570, 145, 0.48);
 
     sky.fillStyle(0x78939a, 0.38);
     sky.fillTriangle(280, 290, 465, 112, 630, 290);
@@ -359,6 +548,77 @@ export class GameScene extends Phaser.Scene {
 
     this.add.text(42, 255, '西岸工地', { fontFamily: 'Microsoft YaHei, sans-serif', fontSize: '14px', color: '#f7e9c8', fontStyle: 'bold' }).setDepth(3);
     this.add.text(842, 255, '东岸验收', { fontFamily: 'Microsoft YaHei, sans-serif', fontSize: '14px', color: '#f7e9c8', fontStyle: 'bold' }).setDepth(3);
+  }
+
+  private createScenery() {
+    const clouds = [
+      { x: 150, y: 88, s: 0.85, v: 5 },
+      { x: 470, y: 132, s: 0.55, v: 8 },
+      { x: 720, y: 62, s: 0.62, v: 4 },
+    ];
+    for (const c of clouds) {
+      const g = this.add.graphics().setDepth(1);
+      drawCloud(g, 0, 0, c.s);
+      g.setPosition(c.x, c.y);
+      this.scenery.push({ obj: g, vx: c.v, baseY: c.y, bob: 0, phase: 0, min: -130, max: 1050 });
+    }
+
+    const balloon = this.add.graphics().setDepth(1);
+    this.drawBalloon(balloon);
+    balloon.setPosition(330, 106);
+    this.scenery.push({ obj: balloon, vx: 9, baseY: 106, bob: 9, phase: 0, min: -60, max: 1020 });
+
+    const boats = [
+      { x: 280, y: 410, v: 13 },
+      { x: 620, y: 432, v: -9 },
+    ];
+    for (const b of boats) {
+      const g = this.add.graphics().setDepth(3);
+      this.drawBoat(g, b.v < 0);
+      g.setPosition(b.x, b.y);
+      this.scenery.push({ obj: g, vx: b.v, baseY: b.y, bob: 2.2, phase: Math.random() * 6.28, min: 168, max: 792 });
+    }
+  }
+
+  private animateScenery(time: number, deltaMs: number) {
+    if (this.reducedMotion) return;
+    const dt = Math.min(deltaMs / 1000, 0.05);
+    for (const s of this.scenery) {
+      s.obj.x += s.vx * dt;
+      if (s.vx > 0 && s.obj.x > s.max) s.obj.x = s.min;
+      else if (s.vx < 0 && s.obj.x < s.min) s.obj.x = s.max;
+      s.obj.y = s.baseY + Math.sin(time * 0.001 + s.phase) * s.bob;
+    }
+  }
+
+  private drawBalloon(g: Phaser.GameObjects.Graphics) {
+    g.fillStyle(0xe96f51, 1);
+    g.fillEllipse(0, 0, 32, 38);
+    g.fillStyle(0xf2c14e, 1);
+    g.fillEllipse(0, 0, 11, 38);
+    g.fillStyle(0xb84735, 1);
+    g.fillTriangle(-6, 17, 6, 17, 0, 22);
+    g.lineStyle(1, 0x18324a, 0.65);
+    g.lineBetween(-7, 17, -3, 25);
+    g.lineBetween(7, 17, 3, 25);
+    g.fillStyle(0x8a5d33, 1);
+    g.fillRect(-5, 25, 10, 7);
+  }
+
+  private drawBoat(g: Phaser.GameObjects.Graphics, flip: boolean) {
+    const dir = flip ? -1 : 1;
+    g.fillStyle(0x2f5360, 1);
+    g.beginPath();
+    g.moveTo(-13, 0);
+    g.lineTo(13, 0);
+    g.lineTo(9, 7);
+    g.lineTo(-9, 7);
+    g.closePath();
+    g.fillPath();
+    g.lineStyle(1.5, 0x2a3b44, 1);
+    g.lineBetween(0, -15, 0, 0);
+    g.fillStyle(0xf2ecd9, 1);
+    g.fillTriangle(0, -15, 0, -2, dir * 10, -2);
   }
 
   private renderWater(time: number) {
@@ -406,7 +666,9 @@ export class GameScene extends Phaser.Scene {
       this.publish(`加载成功！${LEVELS[this.bridge.level].hint}`);
     } else {
       this.playSound(ASSET_KEYS.Error, 0.75);
-      this.publish('车辆落水了。查看最先变红的构件，补一根斜撑再试。');
+      this.publish(this.bridge.level === 'beam'
+        ? '主梁弯曲破坏。试着提高梁高，或用空心箱梁与跨中加高把材料放到更有效的位置。'
+        : '车辆落水了。查看最先变红的构件，补一根斜撑再试。');
     }
   }
 
@@ -429,6 +691,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private publish(hint?: string) {
+    const beamMetrics = this.bridge.beamMetrics;
     gameBridge.publish({
       mode: this.bridge.mode,
       material: this.bridge.material,
@@ -437,11 +700,20 @@ export class GameScene extends Phaser.Scene {
       budget: Math.round(this.bridge.budgetUsed),
       budgetMax: this.bridge.budgetMax,
       memberCount: this.bridge.members.length,
-      maxStress: Math.round(this.bridge.maxStress * 100),
+      maxStress: Math.round(this.bridge.peakStress * 100),
       vehicleProgress: Math.round(this.bridge.car.progress * 100),
       hint: hint ?? gameBridge.snapshot().hint,
       canUndo: this.bridge.canUndo,
       hasBridge: this.bridge.hasBridge,
+      beamSection: { ...this.bridge.beamSection },
+      beamWeight: Math.round(beamMetrics.weight * 100),
+      beamStiffness: Math.round(beamMetrics.stiffness * 100),
+      beamCapacity: Math.round(beamMetrics.capacity * 100),
+      beamStress: Math.round(this.bridge.peakGirderStress * 100),
+      indestructible: this.bridge.indestructible,
+      midspanSupport: this.bridge.hasMidspanSupport,
+      buildTool: this.bridge.buildTool,
+      arcSpacing: this.bridge.arcSpacing,
     });
   }
 
