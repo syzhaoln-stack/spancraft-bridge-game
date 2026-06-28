@@ -36,6 +36,7 @@ jobs:
       - name: Build NEW version (main)
         run: |
           npm ci
+          npm run test:physics
           npm run build
           mkdir -p site
           cp -r dist/* site/
